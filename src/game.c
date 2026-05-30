@@ -168,6 +168,7 @@ extern void PaintCursor(void);
 extern void UpdateCursorState(void);
 extern int  PreloadCommonAssets(void);
 extern int  is_walkable_at(int sx, int sy);
+extern const void *PeLoaderRead(uint32_t va);
 
 /* Cursor state + paint (UpdateCursorState, PaintCursor) moved to src/hud/cursor.c. */
 
@@ -1340,154 +1341,206 @@ typedef struct DemoScene {
  * scene's BG/FLD/entities live in the globals and continues running
  * without unwinding. The legacy g_pending_komnata polling has been
  * fully removed (T42); LoadKomnataScene is the single entry-point. */
+/* ---- LoadKomnataScene helpers ------------------------------------ */
+
+/* Stage descriptor offsets for the per-actor anim-table pointers. */
+#define STAGE_OFF_ACTOR_ANIM_PTR_BASE  0x0C
+#define ANIM_TABLE_IDLE_SLOT_OFFSET    0x14   /* entry [5] = idle bytecode */
+#define WALKER_STATE_RESET_MASK        (ESTATE_FRAME_READY | ESTATE_WALKER_FRESH)
+
+#define FLD_BITS_PER_BYTE              8
+
+/* Walker name buffer size for the synthesised DemoScene. */
+#define SCENE_NAME_BUFFER_SIZE         64
+
+/* Music filename template uses 2-digit decimals; allow plenty of room. */
+#define MUSIC_NAME_FMT                 "Tlo_%u_%ua.wav"
+#define FLD_EXTENSION                  ".fld"
+#define FLD_EXTENSION_BYTES            5      /* ".fld" + NUL */
+
+/* Reset all per-entity VM scratch state on an actor and rebind its
+ * idle bytecode (entry [5] in the per-stage anim table). Without this
+ * the previous room's walker bytecode + patched op 0x15 target stay
+ * bound, and the next VM tick re-plants the path toward the OLD
+ * scene's exit — actor "drifts diagonally" on room entry. */
+static void reset_actor_for_komnata(Entity *a, const uint8_t *sd, int actor_idx)
+{
+    uint8_t *eb = (uint8_t *)a;
+
+    EOFF(a, ENT_OFF_STATE_FLAGS, uint16_t)   &= (uint16_t)~WALKER_STATE_RESET_MASK;
+    EOFF(a, ENT_OFF_LOOP_A,        uint16_t) = 0;
+    EOFF(a, ENT_OFF_LOOP_B,        uint16_t) = 0;
+    EOFF(a, ENT_OFF_LOOP_C,        uint16_t) = 0;
+    EOFF(a, ENT_OFF_LOOP_D,        uint16_t) = 0;
+    EOFF(a, ENT_OFF_LOOP_E,        uint16_t) = 0;
+    EOFF(a, ENT_OFF_PC,            uint16_t) = 0;
+    EOFF(a, ENT_OFF_DELAY,         uint16_t) = 0;
+    EOFF(a, ENT_OFF_WALKER_DX_REM, uint32_t) = 0;
+    EOFF(a, ENT_OFF_WALKER_DY_REM, uint32_t) = 0;
+    EOFF(a, ENT_OFF_WALKER_TGT_X,  uint16_t) = 0;
+    EOFF(a, ENT_OFF_WALKER_TGT_Y,  uint16_t) = 0;
+    (void)eb;
+
+    if (!sd) return;
+
+    /* Rebind idle bytecode (anim_tab[+0x14] = entry [5]). */
+    int      anim_ptr_off = STAGE_OFF_ACTOR_ANIM_PTR_BASE + actor_idx * 4;
+    uint32_t anim_tab_va  = *(const uint32_t *)(sd + anim_ptr_off);
+    const uint8_t *anim_tab = (const uint8_t *)PeLoaderRead(anim_tab_va);
+    if (!anim_tab) return;
+
+    uint32_t bc_va = *(const uint32_t *)(anim_tab + ANIM_TABLE_IDLE_SLOT_OFFSET);
+    const void *bc = xlat_binary_ptr(bc_va);
+    if (!bc) return;
+
+    EOFF(a, ENT_OFF_BYTECODE_SLOT, uint32_t) = ent_ptr_intern((void *)bc);
+}
+
+/* Drop the previous scene's BG raw blob + walkability asset so the new
+ * room starts with cleared scene-state. */
+static void free_previous_scene_assets(void)
+{
+    extern void FreeAsset(AnimAsset *a);
+
+    if (g_scene_bg_raw) {
+        xfree(g_scene_bg_raw);
+        g_scene_bg_raw = NULL;
+    }
+    g_scene_bg_size = 0;
+
+    if (g_scene_fld_asset) {
+        FreeAsset(g_scene_fld_asset);
+        g_scene_fld_asset = NULL;
+    }
+    g_walk_fld_pixels = NULL;
+    g_walk_fld_w  = g_walk_fld_h = 0;
+    g_walk_fld_ox = g_walk_fld_oy = g_walk_fld_stride = 0;
+
+    FreeSceneBgAtlas();
+    StopMenuMusic();
+}
+
+/* Build a synthesised DemoScene from the resolved komnata name, the
+ * current stage / komnata indices, and the standard naming convention:
+ *   bg_pic    = <name>
+ *   fld_file  = <name without .pic>.fld
+ *   music_wav = Tlo_<stage>_<komnata>a.wav
+ * Returns a pointer to a static buffer (stable across the call,
+ * overwritten by the next LoadKomnataScene). */
+static const DemoScene *synthesise_demo_scene(const char *name)
+{
+    static DemoScene s_synth;
+    static char      s_synth_name [SCENE_NAME_BUFFER_SIZE];
+    static char      s_synth_fld  [SCENE_NAME_BUFFER_SIZE];
+    static char      s_synth_music[SCENE_NAME_BUFFER_SIZE];
+
+    snprintf(s_synth_name, sizeof s_synth_name, "%s", name);
+
+    /* Derive ".fld" filename by replacing the .pic extension. */
+    const char *dot  = strrchr(name, '.');
+    size_t      base = dot ? (size_t)(dot - name) : strlen(name);
+    if (base >= sizeof s_synth_fld) {
+        base = sizeof s_synth_fld - FLD_EXTENSION_BYTES;
+    }
+    memcpy(s_synth_fld, name, base);
+    memcpy(s_synth_fld + base, FLD_EXTENSION, FLD_EXTENSION_BYTES);
+
+    snprintf(s_synth_music, sizeof s_synth_music, MUSIC_NAME_FMT,
+             (unsigned)g_cur_etap, (unsigned)g_cur_komnata);
+
+    s_synth = (DemoScene){
+        .name      = s_synth_name,
+        .bg_pic    = s_synth_name,
+        .fld_file  = s_synth_fld,
+        .music_wav = s_synth_music,
+        .walk_x0   = 0, .walk_y0 = 0,
+        .walk_x1   = 0, .walk_y1 = 0,
+    };
+    return &s_synth;
+}
+
+/* Load the .pic background blob for the new scene, if present. */
+static void load_scene_background(const DemoScene *s)
+{
+    if (!s->bg_pic) return;
+
+    void    *bg    = NULL;
+    uint32_t bg_sz = 0;
+    if (LoadFileFromDta(s->bg_pic, &bg, &bg_sz) && bg) {
+        g_scene_bg_raw  = bg;
+        g_scene_bg_size = bg_sz;
+    }
+}
+
+/* Fallback walkability bitmap loader. The script-driven bg-mask-setup
+ * call (op 0x2C inside LoadKomnata) is the authoritative source;
+ * this only fires when the script never called it (komnaty whose
+ * .pic and .fld share a basename). */
+static void load_scene_walkability_fallback(const DemoScene *s)
+{
+    if (!s->fld_file || g_walk_fld_pixels) return;
+
+    AnimAsset *fld = LoadAssetFromDtaBase(s->fld_file);
+    g_scene_fld_asset = fld;
+
+    if (fld && fld->pixel_ptrs && fld->pixel_ptrs[0]) {
+        g_walk_fld_pixels = fld->pixel_ptrs[0];
+        g_walk_fld_w      = fld->off_widths [0];
+        g_walk_fld_h      = fld->off_heights[0];
+        g_walk_fld_ox     = (int16_t)fld->off_drawX[0];
+        g_walk_fld_oy     = (int16_t)fld->off_drawY[0];
+        g_walk_fld_stride = (g_walk_fld_w + FLD_BITS_PER_BYTE - 1) / FLD_BITS_PER_BYTE;
+        fprintf(stderr, "[fld] %s: %dx%d @ (%d,%d) stride=%d\n",
+                s->fld_file, g_walk_fld_w, g_walk_fld_h,
+                g_walk_fld_ox, g_walk_fld_oy, g_walk_fld_stride);
+    } else {
+        fprintf(stderr, "[fld] %s: load failed — falling back to bbox\n",
+                s->fld_file);
+    }
+}
+
 void LoadKomnataScene(uint16_t id)
 {
     extern Entity *g_actor[2];
-    extern void FreeAsset(AnimAsset *a);
     if (id == 0) return;
 
-    /* Step 1 — full actor reset ( room-reset block
- * @ 0x00402DB0). The original calls to clear all per-
- * entity VM scratch state (+0x32 pc, +0x34/0x36/0x38 loop counters,
- * +0x3C delay, +0x40/0x42 osc counters, +0x4C/0x50 walker remainder,
- * bits 0+2 of +0x3A) and then re-binds +0x2C to entry [5] idle
- * bytecode (= anim_tab[+0x14]). Without this, the previous room's
- * walker bytecode + patched op 0x15 target stay bound; next per-
- * entity VM tick re-plants the path from the new spawn position
- * toward the OLD scene's target → actor "drifts diagonally" toward
- * the previous exit. */
-    extern uint32_t g_stage_va;
-    extern const void *PeLoaderRead(uint32_t va);
-    extern const void *xlat_binary_ptr(uint32_t va);
-    extern uint32_t ent_ptr_intern(void *p);
+    /* --- Step 1: reset both actors -------------------------------- */
     const uint8_t *sd = g_stage_va
-        ? (const uint8_t *)PeLoaderRead(g_stage_va) : NULL;
+                        ? (const uint8_t *)PeLoaderRead(g_stage_va)
+                        : NULL;
     for (int i = 0; i < 2; ++i) {
-        if (!g_actor[i]) continue;
-        uint8_t *eb = (uint8_t *)g_actor[i];
-        /* reset — full per-entity VM scratch clear. */
-        *(uint16_t *)(eb + 0x3A) &= (uint16_t)~5u;  /* bits 0 + 2 cleared */
-        *(uint16_t *)(eb + 0x38) = 0;
-        *(uint16_t *)(eb + 0x36) = 0;
-        *(uint16_t *)(eb + 0x34) = 0;
-        *(uint16_t *)(eb + 0x3C) = 0;
-        *(uint16_t *)(eb + 0x42) = 0;
-        *(uint16_t *)(eb + 0x40) = 0;
-        *(uint16_t *)(eb + 0x32) = 0;
-        *(uint32_t *)(eb + 0x50) = 0;
-        *(uint32_t *)(eb + 0x4C) = 0;
-        /* Also clear walker target so a subsequent op 0x15 replant
- * (after dxr/dyr both zeroed above) doesn't carry a stale target
- * from the previous scene. */
-        *(uint16_t *)(eb + 0x54) = 0;
-        *(uint16_t *)(eb + 0x56) = 0;
-        /* Bind entry [5] idle bytecode ( line
- * = anim_tab[+0x14] = entry [5]). */
-        if (sd) {
-            uint32_t anim_tab_va =
-                *(const uint32_t *)(sd + (i ? 0x10 : 0x0C));
-            const uint8_t *anim_tab =
-                (const uint8_t *)PeLoaderRead(anim_tab_va);
-            if (anim_tab) {
-                uint32_t bc_va = *(const uint32_t *)(anim_tab + 0x14);
-                const void *bc = xlat_binary_ptr(bc_va);
-                if (bc)
-                    *(uint32_t *)(eb + 0x2C) = ent_ptr_intern((void *)bc);
-            }
-        }
+        if (g_actor[i]) reset_actor_for_komnata(g_actor[i], sd, i);
     }
 
-    /* Step 2 — free old per-scene assets (BG raw blob + FLD asset). */
-    if (g_scene_bg_raw)   { xfree(g_scene_bg_raw);   g_scene_bg_raw   = NULL; }
-    g_scene_bg_size = 0;
-    if (g_scene_fld_asset){ FreeAsset(g_scene_fld_asset); g_scene_fld_asset = NULL; }
-    g_walk_fld_pixels = NULL;
-    g_walk_fld_w = g_walk_fld_h = 0;
-    g_walk_fld_ox = g_walk_fld_oy = g_walk_fld_stride = 0;
-    /* Drop prior scene's BG atlas copy — next komnata captures its own. */
-    FreeSceneBgAtlas();
-    StopMenuMusic();
+    /* --- Step 2: drop previous scene's assets --------------------- */
+    free_previous_scene_assets();
 
-    /* Step 3 — script-level load. Returns komnata name string. */
+    /* --- Step 3: run the script-level load ----------------------- */
     const char *name = LoadKomnata(id);
     if (!name) {
         fprintf(stderr, "[scene] LoadKomnataScene(%u) — LoadKomnata failed\n", id);
         return;
     }
 
-    /* Step 4 — synthesize the DemoScene from the komnata name + current
- * stage (Fix #26 — hardcoded s_demo_scenes[] removed):
- * walk_x0..y1 are left at 0; the actual walk box comes from FLD
- * (off_drawX/Y/widths/heights[0]) loaded below — g_walk_x0..y1
- * fallback is only used when no FLD is present. */
-    static DemoScene s_synth;
-    static char s_synth_name[64], s_synth_fld[64], s_synth_music[64];
-    snprintf(s_synth_name, sizeof s_synth_name, "%s", name);
-    const char *dot = strrchr(name, '.');
-    size_t base = dot ? (size_t)(dot - name) : strlen(name);
-    if (base >= sizeof s_synth_fld) base = sizeof s_synth_fld - 5;
-    memcpy(s_synth_fld, name, base);
-    memcpy(s_synth_fld + base, ".fld", 5);
-    snprintf(s_synth_music, sizeof s_synth_music,
-             "Tlo_%u_%ua.wav", (unsigned)g_cur_etap, (unsigned)g_cur_komnata);
-    s_synth = (DemoScene){
-        .name = s_synth_name, .bg_pic = s_synth_name,
-        .fld_file = s_synth_fld, .music_wav = s_synth_music,
-        .walk_x0 = 0, .walk_y0 = 0, .walk_x1 = 0, .walk_y1 = 0,
-    };
-    const DemoScene *s = &s_synth;
+    /* --- Step 4: build a DemoScene + load BG + walkability fallback */
+    const DemoScene *s = synthesise_demo_scene(name);
     g_current_scene = (const struct DemoScene *)s;
-    g_walk_x0 = s->walk_x0; g_walk_x1 = s->walk_x1;
-    g_walk_y0 = s->walk_y0; g_walk_y1 = s->walk_y1;
+    g_walk_x0 = s->walk_x0;  g_walk_x1 = s->walk_x1;
+    g_walk_y0 = s->walk_y0;  g_walk_y1 = s->walk_y1;
 
-    void *bg = NULL; uint32_t bg_sz = 0;
-    if (s->bg_pic && LoadFileFromDta(s->bg_pic, &bg, &bg_sz) && bg) {
-        g_scene_bg_raw  = bg;
-        g_scene_bg_size = bg_sz;
-    }
+    load_scene_background(s);
+    load_scene_walkability_fallback(s);
 
-    /* Walkability FLD — only synthesize "<pic-basename>.fld" and load if
- * bg-mask-setup (op 0x2C, runs inside LoadKomnata step 3) didn't
- * already publish g_walk_fld_pixels. The script-named FLD is the
- * authoritative source ( game, which has no
- * separate "step 4 synth fld load" — that was a port shortcut for
- * komnaty where pic/fld share a basename). Step 4 stays only as a
- * fallback for scenes where the script never calls bg-mask-setup. */
-    if (s->fld_file && !g_walk_fld_pixels) {
-        AnimAsset *fld = LoadAssetFromDtaBase(s->fld_file);
-        g_scene_fld_asset = fld;
-        if (fld && fld->pixel_ptrs && fld->pixel_ptrs[0]) {
-            g_walk_fld_pixels = fld->pixel_ptrs[0];
-            g_walk_fld_w  = fld->off_widths [0];
-            g_walk_fld_h  = fld->off_heights[0];
-            g_walk_fld_ox = (int16_t)fld->off_drawX[0];
-            g_walk_fld_oy = (int16_t)fld->off_drawY[0];
-            g_walk_fld_stride = (g_walk_fld_w + 7) / 8;
-            fprintf(stderr, "[fld] %s: %dx%d @ (%d,%d) stride=%d\n",
-                    s->fld_file, g_walk_fld_w, g_walk_fld_h,
-                    g_walk_fld_ox, g_walk_fld_oy, g_walk_fld_stride);
-        } else {
-            fprintf(stderr, "[fld] %s: load failed — falling back to bbox\n",
-                    s->fld_file);
-        }
-    }
-
-    /* Step 5 — music. */
+    /* --- Step 5: music + clean BG repaint ------------------------ */
     if (s->music_wav) PlayMenuMusic(s->music_wav, 1);
 
-    /* Step 6 — clean BG repaint. LoadKomnata runs enter_va + 2 embedded
- * frame ticks + second_va inside step 3. The
- * embedded ticks process EntityRenderAll which paints both the BG
- * sprite (flag-0x60 one-shot) AND any other entities (HUD panel
- * buttons, walk-behinds) to the backbuffer. When control returns
- * here, the outer ProcessGameFrameTickInner that called us is
- * mid-iteration — it already passed its top-of-tick BG paint and
- * is about to call EntityRenderAll again. Without this reset, the
- * second EntityRenderAll paints entities AGAIN over the embedded
- * tick's earlier paint, but at slightly advanced walker positions
- * → 1-frame ghost trail visible right after entering the komnata.
- * Repainting the BG here wipes the embedded tick's entity paint;
- * the outer EntityRenderAll then paints fresh at current positions. */
+    /* LoadKomnata runs the enter script + two embedded ProcessGameFrameTick
+     * calls + the secondary script. Those embedded ticks call
+     * EntityRenderAll, painting entities at their CURRENT positions.
+     * The outer ProcessGameFrameTickInner that called us is mid-tick
+     * and will call EntityRenderAll again at slightly advanced
+     * positions — repainting the BG here wipes the embedded paint so
+     * the outer pass renders a clean single frame. */
     if (g_scene_bg_raw) paint_rawb_pic(g_scene_bg_raw, g_scene_bg_size, 0);
     PaintSceneBgAtlasIfAny();
 
