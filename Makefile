@@ -50,7 +50,8 @@ ENGINE_SRCS = \
 	src/scene/navigation.c src/scene/actor_walk.c src/scene/stage.c \
 	src/scene/bg_mask.c src/scene/spawn.c                        \
 	src/audio/sound_queue.c                                       \
-	src/script_bridge/palette.c src/script_bridge/entity.c
+	src/script_bridge/palette.c src/script_bridge/entity.c        \
+	src/text/balloon.c src/anim/resolver.c src/util/screenshot.c
 
 TOOL_SRCS_EXTRACT = tools/dta-extract.c src/depack.c src/archive.c \
                     src/cygio.c src/heap.c
@@ -101,7 +102,8 @@ TEST_ENGINE_SRCS = \
 	src/scene/navigation.c src/scene/actor_walk.c src/scene/stage.c \
 	src/scene/bg_mask.c src/scene/spawn.c                        \
 	src/audio/sound_queue.c                                       \
-	src/script_bridge/palette.c src/script_bridge/entity.c                       \
+	src/script_bridge/palette.c src/script_bridge/entity.c        \
+	src/text/balloon.c src/anim/resolver.c src/util/screenshot.c                       \
 	src/stubs.c     src/actor/intern.c    src/actor/registration.c \
 	src/actor/list.c src/actor/vm.c \
 	src/actor/render.c src/actor/alloc.c \
