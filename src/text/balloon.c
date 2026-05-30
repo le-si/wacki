@@ -35,12 +35,35 @@ extern void    xfree  (void *p);
 extern uint32_t ent_ptr_intern(void *p);
 extern const void *xlat_binary_ptr(uint32_t addr);
 
+/* ---- module constants --------------------------------------------- *
+ *
+ * Where a number appears more than once in this file, it gets a name. */
+
+#define SPEECH_TEXT_MAX        256       /* working buffer for translated text */
+#define SPEECH_LINES_MAX        10       /* max `|`-delimited lines per balloon */
+#define SPEECH_FONT_COLOR     0xFD       /* indexed-palette colour for glyph fg */
+#define SPEECH_LINE_HEIGHT      30       /* Futura.30 line advance, px */
+#define SPEECH_MIN_WIDTH        32       /* tiny balloons need a base width */
+#define SPEECH_SCREEN_MARGIN     8       /* keep balloon away from screen edges */
+#define SPEECH_DEFAULT_Y      0x50       /* fallback Y when no speaker found */
+
+/* Auto-dismiss timer is `text_chars * MS_PER_CHAR + (lines + 4) *
+ * LINE_PADDING_MS`, clamped to [MIN_DUR_MS, MAX_DUR_MS]. */
+#define SPEECH_MS_PER_CHAR      10
+#define SPEECH_LINE_PADDING_MS  0x19     /* = 25 ms (per Ghidra formula) */
+#define SPEECH_LINE_PADDING_LINES 4      /* magic +4 in the formula */
+#define SPEECH_MIN_DUR_MS       60
+#define SPEECH_MAX_DUR_MS     5000
+
+/* Polish CP-1250 → Futura.30 glyph slot translation table size. */
+#define POLISH_DIACRITIC_COUNT  18
+
 /* Auto-dismiss timer derived from the original engine's wait-loop
  * counter. Ticked down by frame delta each ProcessGameFrameTick. */
-char     g_speech_text[256]      = {0};
-uint16_t g_speech_actor          = 0;
-uint32_t g_speech_tick           = 0;
-uint16_t g_speech_dismiss_ticks  = 0;
+char     g_speech_text[SPEECH_TEXT_MAX] = {0};
+uint16_t g_speech_actor                 = 0;
+uint32_t g_speech_tick                  = 0;
+uint16_t g_speech_dismiss_ticks         = 0;
 
 /* Active speech balloon entity (kind=1 with manual pixel buffer).
  * NULL = no active balloon. EntityListClearAll resets via the same
@@ -83,15 +106,17 @@ void TextTranslationLutInit(void)
     /* Override 18 entries — Polish diacritics → Futura slots. Table
  * lifted byte-for-byte from PE: source @ 0x00445E40, target @
  * 0x00445E58 (each 18 bytes). */
-    static const uint8_t src[18] = {
+    static const uint8_t cp1250_src[POLISH_DIACRITIC_COUNT] = {
         0xA5, 0xC6, 0xCA, 0xA3, 0xD1, 0xD3, 0x8C, 0xAF, 0x8F,   /* Ą Ć Ę Ł Ń Ó Ś Ż Ź */
         0xB9, 0xE6, 0xEA, 0xB3, 0xF1, 0xF3, 0x9C, 0x9F, 0xBF    /* ą ć ę ł ń ó ś ź ż */
     };
-    static const uint8_t dst[18] = {
+    static const uint8_t futura_dst[POLISH_DIACRITIC_COUNT] = {
         0xC2, 0xCA, 0xCB, 0xCE, 0xCF, 0xD3, 0xD4, 0xDB, 0xDA,
         0xE2, 0xEA, 0xEB, 0xEE, 0xEF, 0xF3, 0xF4, 0xFA, 0xFB
     };
-    for (int i = 0; i < 18; ++i) g_text_translation_lut[src[i]] = dst[i];
+    for (int i = 0; i < POLISH_DIACRITIC_COUNT; ++i) {
+        g_text_translation_lut[cp1250_src[i]] = futura_dst[i];
+    }
     g_text_lut_built = 1;
 }
 
@@ -114,96 +139,171 @@ static void translate_script_text(const char *in, char *out, size_t out_sz)
     out[n] = 0;
 }
 
-/* DEAD CODE IN SHIPPED GAME (verified empirically 2026-05-28).
+/* ScriptCallShowText is the back-end of script opcode 0x09 SHOW_TEXT.
  *
- * Op 0x09 SHOW_TEXT is fully implemented in WACKI.EXE (RunScriptInterpreter
- * case 9 @ 0x00407820) but no script in any of the 5 stages actually emits
- * the opcode. All in-game character dialogue goes through op 0x52/0x53
- * (DialogStackPush / DialogRunner reading [sampl] audio-only entries from
- * Gadki.scr — Polish voice acting, no subtitles).
+ * NOTE: dead code in the shipped game. Op 0x09 is implemented in the
+ * engine but no script in any of the 5 stages emits it; character
+ * dialogue runs through op 0x52/0x53 instead (Polish voice-only via
+ * Gadki.scr [sampl] tags). Kept for fidelity in case unreached scripts
+ * fire it. If you see a "[say]" log line, the entity-render path will
+ * display the balloon.
  *
- * Likely a leftover from pre-dub development when text placeholders were
- * shown over speakers. Kept for fidelity + in case any unreached
- * scripts in stages 4/5 actually fire it. If you ever see a "[say]" log
- * line, the kind=1 entity render path in EntityRenderAll will display it. */
-void ScriptCallShowText(uint16_t actor, const char *text)
+ * Pipeline:
+ *   1. Translate CP-1250 → Futura glyph indices
+ *   2. Split text on '|' into lines (≤ SPEECH_LINES_MAX)
+ *   3. Measure width per line, derive balloon bbox
+ *   4. Free any previous balloon, allocate kind=1 entity for new one
+ *   5. Render each line into the entity's pixel buffer
+ *   6. Position above the speaker (or fallback to centered)
+ *   7. Link into render list, arm dismissal timer
+ */
+
+/* Split `text` on '|' separators into up to SPEECH_LINES_MAX entries
+ * pointing into `buf` (which holds a mutable copy). Returns line count.
+ * Each line is NUL-terminated in-place. */
+static int split_text_lines(const char *text, char *buf, size_t buf_sz,
+                            char **lines)
 {
-    extern uint32_t g_tick_counter;
-    extern FontHandle *g_default_font;
-    if (!text || !*text || !g_default_font) return;
-    /* T103 — gate on g_subtitles_on. When disabled in
- * Solund menu, op 0x09 SHOW_TEXT no-ops (audio still plays via
- * separate path if voice_on is set; only the visible balloon is
- * suppressed). */
-    if (!g_subtitles_on) {
-        fprintf(stderr, "[say] suppressed (subtitles_on=0): %.60s\n", text);
-        return;
-    }
-    /* T117 — translate raw CP-1250 input via Polish-diacritic LUT before
- * any layout/render. op 0x09 dispatch calling
- * (text) → translated_text_buf (translated buffer). */
-    char translated[256];
-    translate_script_text(text, translated, sizeof translated);
-    text = translated;
-    fprintf(stderr, "[say] actor=%u: %.120s\n", actor, text);
+    strncpy(buf, text, buf_sz - 1);
+    buf[buf_sz - 1] = 0;
 
-    /* (RunScriptInterpreter case 9):
- *
- * 1. copies the text into work buffer.
- * 2. Split on '|' into up to 10 lines (local_d4[]).
- * 3. Measure each line width via (font, line),
- * track max in uVar24, set total height = lines * font.advance.
- * 4. piVar22 = AllocEntity(maxW, totalH, kind=1, 1).
- * 5. Zero the pixel buffer.
- * 6. Set up render desc ..:
- * stride=maxW height=totalH font= color=0xFD
- * and render each line centred at (maxW - line_w)/2.
- * 7. (speaker_id) → speaker click entity.
- * If kind=1/2: X = drawX + (w - text_w)/2, Y = drawY - text_h.
- * Else: Y=0x50, X centred.
- * 8. Clamp X to [0, screen_w - text_w], Y to >= 0.
- * 9. (cursor_state_struct, balloon) — link to render list.
- * 10. Wait loop ticks down speech_dismiss_ticks by g_frame_delta_ms per
- * ProcessGameFrameTick; exit when zero or g_panel_cursor_redirect2 click.
- * 11. Set balloon hidden bit (+0x09 & 0x80) on exit. */
-
-    /* --- 1: copy text + split on '|' --- */
-    char buf[256];
-    strncpy(buf, text, sizeof buf - 1);
-    buf[sizeof buf - 1] = 0;
-    char *lines[10];
-    int   line_count = 0;
-    char *p = buf;
-    while (line_count < 10) {
-        lines[line_count++] = p;
+    int   count = 0;
+    char *p     = buf;
+    while (count < SPEECH_LINES_MAX) {
+        lines[count++] = p;
         char *bar = strchr(p, '|');
         if (!bar) break;
         *bar = 0;
         p = bar + 1;
     }
+    return count;
+}
 
-    /* --- 2: measure widths via MeasureTextLine (= 
- * --- */
-    int line_w[10] = {0};
+/* Measure each line's pixel width. Sets *out_max_w / *out_total_h to
+ * the balloon's overall dimensions (clamped to screen). */
+static void measure_balloon(FontHandle *font, char **lines, int count,
+                            int *line_w, int *out_max_w, int *out_total_h)
+{
     int max_w = 0;
-    for (int i = 0; i < line_count; ++i) {
-        line_w[i] = MeasureTextLine(g_default_font, (const uint8_t *)lines[i]);
+    for (int i = 0; i < count; ++i) {
+        line_w[i] = MeasureTextLine(font, (const uint8_t *)lines[i]);
         if (line_w[i] > max_w) max_w = line_w[i];
     }
-    if (max_w < 32) max_w = 32;
-    if (max_w > WACKI_SCREEN_W - 8) max_w = WACKI_SCREEN_W - 8;
-    int total_h = line_count * 30;       /* Futura.30 advance ≈ 30 */
-    if (total_h < 30) total_h = 30;
-
-    /* --- 3: AllocEntity kind=1 with primary plane (group_flags=1) --- */
-    /* Free any previous balloon — original op 0x09 keeps only one at
- * a time (the previous one is hidden via +0x09 |= 0x80 then GC'd). */
-    if (g_speech_balloon) {
-        UnlinkEntity(g_speech_balloon);
-        if (g_speech_balloon->pixels) xfree(g_speech_balloon->pixels);
-        xfree(g_speech_balloon);
-        g_speech_balloon = NULL;
+    if (max_w < SPEECH_MIN_WIDTH) max_w = SPEECH_MIN_WIDTH;
+    if (max_w > WACKI_SCREEN_W - SPEECH_SCREEN_MARGIN) {
+        max_w = WACKI_SCREEN_W - SPEECH_SCREEN_MARGIN;
     }
+
+    int total_h = count * SPEECH_LINE_HEIGHT;
+    if (total_h < SPEECH_LINE_HEIGHT) total_h = SPEECH_LINE_HEIGHT;
+
+    *out_max_w   = max_w;
+    *out_total_h = total_h;
+}
+
+/* Free the currently-displayed balloon entity (if any) so a new one
+ * can take its place. The engine keeps at most one balloon active. */
+static void clear_speech_balloon(void)
+{
+    if (!g_speech_balloon) return;
+
+    UnlinkEntity(g_speech_balloon);
+    if (g_speech_balloon->pixels) xfree(g_speech_balloon->pixels);
+    xfree(g_speech_balloon);
+    g_speech_balloon = NULL;
+}
+
+/* Render every text line into the balloon entity's pixel buffer,
+ * centered horizontally per-line. */
+static void render_balloon_lines(Entity *e, FontHandle *font,
+                                 char **lines, int count,
+                                 const int *line_w, int max_w)
+{
+    for (int i = 0; i < count; ++i) {
+        int cx = (max_w - line_w[i]) / 2;
+        if (cx < 0) cx = 0;
+        TextRenderTarget td = {
+            .stride     = (uint16_t)max_w,
+            .x          = (uint16_t)cx,
+            .color_base = SPEECH_FONT_COLOR,
+            .pixels     = e->pixels + (size_t)(i * SPEECH_LINE_HEIGHT) * max_w,
+            .font       = font,
+        };
+        RenderTextLineToBuffer(&td, (const uint8_t *)lines[i]);
+    }
+}
+
+/* Decide where on screen the balloon goes. If the speaker entity is
+ * findable (via verb_id), position above its draw rect. Otherwise
+ * fallback to horizontally-centered at a fixed Y. Clamps to screen. */
+static void position_balloon(uint16_t actor, int max_w, int total_h,
+                             int *out_x, int *out_y)
+{
+    extern Entity *FindEntityByVerbId(uint16_t verb);
+    Entity *spk = FindEntityByVerbId(actor);
+
+    int bx, by;
+    if (spk) {
+        int16_t  sx_x = EOFF(spk, ENT_OFF_DRAWN_X, int16_t);
+        int16_t  sx_y = EOFF(spk, ENT_OFF_DRAWN_Y, int16_t);
+        uint16_t sx_w = EOFF(spk, ENT_OFF_WIDTH,   uint16_t);
+        bx = (int)sx_x + ((int)sx_w - max_w) / 2;
+        by = (int)sx_y - total_h;
+    } else {
+        bx = (WACKI_SCREEN_W - max_w) / 2;
+        by = SPEECH_DEFAULT_Y;
+    }
+    if (bx < 0) bx = 0;
+    if (bx + max_w > WACKI_SCREEN_W) bx = WACKI_SCREEN_W - max_w;
+    if (by < 0) by = 0;
+
+    *out_x = bx;
+    *out_y = by;
+}
+
+/* The dismissal duration in ms is derived from text length + line
+ * count, then clamped. The original engine's wait-loop counter has the
+ * same shape; we compute the semantic equivalent directly because our
+ * buffer addresses don't match the original's fixed address arithmetic. */
+static int compute_dismiss_duration(size_t char_count, int line_count)
+{
+    int dur = (int)char_count * SPEECH_MS_PER_CHAR
+            + (line_count + SPEECH_LINE_PADDING_LINES) * SPEECH_LINE_PADDING_MS;
+    if (dur < SPEECH_MIN_DUR_MS) dur = SPEECH_MIN_DUR_MS;
+    if (dur > SPEECH_MAX_DUR_MS) dur = SPEECH_MAX_DUR_MS;
+    return dur;
+}
+
+void ScriptCallShowText(uint16_t actor, const char *text)
+{
+    extern uint32_t    g_tick_counter;
+    extern FontHandle *g_default_font;
+
+    if (!text || !*text || !g_default_font) return;
+
+    /* Settings can disable visible subtitles (audio still plays via a
+     * separate path if voice_on is set). */
+    if (!g_subtitles_on) {
+        fprintf(stderr, "[say] suppressed (subtitles_on=0): %.60s\n", text);
+        return;
+    }
+
+    char translated[SPEECH_TEXT_MAX];
+    translate_script_text(text, translated, sizeof translated);
+    text = translated;
+    fprintf(stderr, "[say] actor=%u: %.120s\n", actor, text);
+
+    /* Layout: split into lines, measure, compute bounding box. */
+    char  buf[SPEECH_TEXT_MAX];
+    char *lines[SPEECH_LINES_MAX];
+    int   line_count = split_text_lines(text, buf, sizeof buf, lines);
+
+    int line_w[SPEECH_LINES_MAX] = {0};
+    int max_w, total_h;
+    measure_balloon(g_default_font, lines, line_count, line_w, &max_w, &total_h);
+
+    /* Free previous balloon; allocate kind=1 entity for this one. */
+    clear_speech_balloon();
     Entity *e = AllocEntity((uint16_t)max_w, (uint16_t)total_h, 1, 1);
     if (!e || !e->pixels) {
         if (e) { if (e->pixels) xfree(e->pixels); xfree(e); }
@@ -211,136 +311,74 @@ void ScriptCallShowText(uint16_t actor, const char *text)
     }
     memset(e->pixels, 0, (size_t)max_w * (size_t)total_h);
 
-    /* --- 4: render each line into the buffer ---
- * RenderTextLineToBuffer writes at td.pixels + stride*baseline.
- * Per-line Y advance via offsetting base pointer. Color 0xFD
- * ( from Ghidra).
- *
- * Native-pointer TextRenderTarget struct (replaces the original's
- * 32-bit uint32_t[5] descriptor) — see wacki.h. The legacy uint32_t
- * array truncated 64-bit pointers and crashed when malloc returned
- * addresses above the 4 GB boundary. */
-    for (int i = 0; i < line_count; ++i) {
-        int cx = (max_w - line_w[i]) / 2;
-        if (cx < 0) cx = 0;
-        TextRenderTarget td = {
-            .stride     = (uint16_t)max_w,
-            .x          = (uint16_t)cx,
-            .color_base = 0xFD,
-            .pixels     = e->pixels + (size_t)(i * 30) * max_w,
-            .font       = g_default_font,
-        };
-        RenderTextLineToBuffer(&td, (const uint8_t *)lines[i]);
-    }
+    /* Render lines into the entity's pixel buffer, then place on screen. */
+    render_balloon_lines(e, g_default_font, lines, line_count, line_w, max_w);
 
-    /* --- 5: position above speaker — 
- * lookup. Use FindEntityByVerbId; if found, position above its
- * draw rect. Else fallback: Y=0x50, X centred. */
     int bx, by;
-    extern Entity *FindEntityByVerbId(uint16_t verb);
-    Entity *spk = FindEntityByVerbId(actor);
-    if (spk) {
-        uint8_t *sb = (uint8_t *)spk;
-        int16_t sx_x = *(int16_t  *)(sb + 0x0A);
-        int16_t sx_y = *(int16_t  *)(sb + 0x0C);
-        uint16_t sx_w = *(uint16_t *)(sb + 0x0E);
-        bx = (int)sx_x + ((int)sx_w - max_w) / 2;
-        by = (int)sx_y - total_h;
-    } else {
-        bx = (WACKI_SCREEN_W - max_w) / 2;
-        by = 0x50;
-    }
-    if (bx < 0) bx = 0;
-    if (bx + max_w > WACKI_SCREEN_W) bx = WACKI_SCREEN_W - max_w;
-    if (by < 0) by = 0;
+    position_balloon(actor, max_w, total_h, &bx, &by);
 
-    uint8_t *eb = (uint8_t *)e;
-    *(int16_t *)(eb + 0x0A) = (int16_t)bx;
-    *(int16_t *)(eb + 0x0C) = (int16_t)by;
-    *(int16_t *)(eb + 0x22) = (int16_t)bx;          /* anchor mirror */
-    *(int16_t *)(eb + 0x24) = (int16_t)by;
-    /* foot_y at +0x26 = drawY + height for z-sort. */
-    *(int16_t *)(eb + 0x26) = (int16_t)(by + total_h);
+    EOFF(e, ENT_OFF_DRAWN_X,  int16_t) = (int16_t)bx;
+    EOFF(e, ENT_OFF_DRAWN_Y,  int16_t) = (int16_t)by;
+    EOFF(e, ENT_OFF_ANCHOR_X, int16_t) = (int16_t)bx;
+    EOFF(e, ENT_OFF_ANCHOR_Y, int16_t) = (int16_t)by;
+    EOFF(e, ENT_OFF_FOOT_Y,   int16_t) = (int16_t)(by + total_h);
 
-    /* --- 6: link to render list. --- */
     LinkEntityToList(&g_render_list_head, e, 0);
     g_speech_balloon = e;
 
-    /* --- 7: dismissal timer (Ghidra: speech_dismiss_ticks = chars*10 - 0x7D20
- * + (lines+4)*0x19; ticks down by g_frame_delta_ms each frame). --- */
-    size_t n_chars = strlen(text);
-    /* Dismiss-timer formula —:
- * `text_chars * 10` IF the buffer starts at the original game's
- * fixed address `0x475950` (whose low word 0x5950 = 22864 satisfies
- * `22864 * 10 mod 65536 == 0x7D20`). That calibration cancels the
- * fixed buffer-base contribution leaving the char count.
- *
- * Our heap-allocated buffer doesn't match the original's address,
- * so we compute the semantic equivalent directly:
- * dur (ms) = text_chars * 10 + (lines+4) * 25
- *
- * For 50 chars, 1 line: 500 + 125 = 625 ms.
- * For 200 chars, 2 lines: 2000 + 150 = 2150 ms.
- * Result is read by TickSpeechBalloon each frame and decremented by
- * g_frame_delta_ms (real ms) — when ≤ 0 the balloon is GC'd. */
-    int dur = (int)n_chars * 10 + (line_count + 4) * 0x19;
-    if (dur < 60)   dur = 60;       /* safety: ensure at least ~1s show */
-    if (dur > 5000) dur = 5000;     /* cap absurdly long text at 5s */
-    /* Keep legacy fields for the overlay-renderer transition window
- * — they'll be retired once the entity render path is the sole
- * draw site for kind=1 balloons. */
-    g_speech_text[0]        = 0;             /* disable old overlay */
+    /* Arm the dismissal timer. */
+    g_speech_text[0]        = 0;                       /* disable legacy overlay */
     g_speech_actor          = actor;
     g_speech_tick           = g_tick_counter;
-    g_speech_dismiss_ticks  = (uint16_t)dur;
+    g_speech_dismiss_ticks  = (uint16_t)compute_dismiss_duration(strlen(text),
+                                                                 line_count);
 }
 
-/* TickSpeechBalloon — drains the dismissal timer (Ghidra speech_dismiss_ticks
- * wait loop in case 9). Called once per ProcessGameFrameTick. */
+/* Re-bind a speaker entity to a fresh bytecode block (e.g. its idle
+ * animation) and reset all walker / loop / delay state so the speaker
+ * stops mid-talk and returns to neutral. Used by TickSpeechBalloon to
+ * close out a dialog line. */
+static void rebind_speaker_to_bytecode(Entity *sp, const void *bytecode)
+{
+    EOFF(sp, ENT_OFF_STATE_FLAGS,   uint16_t) &=
+        (uint16_t)~(ESTATE_FRAME_READY | ESTATE_WALKER_FRESH);
+    EOFF(sp, ENT_OFF_LOOP_A,        uint16_t) = 0;
+    EOFF(sp, ENT_OFF_LOOP_B,        uint16_t) = 0;
+    EOFF(sp, ENT_OFF_LOOP_C,        uint16_t) = 0;
+    EOFF(sp, ENT_OFF_LOOP_D,        uint16_t) = 0;
+    EOFF(sp, ENT_OFF_LOOP_E,        uint16_t) = 0;
+    EOFF(sp, ENT_OFF_DELAY,         uint16_t) = 0;
+    EOFF(sp, ENT_OFF_PC,            uint16_t) = 0;
+    EOFF(sp, ENT_OFF_FRAME,         uint16_t) = 0;
+    EOFF(sp, ENT_OFF_WALKER_DX_REM, uint32_t) = 0;
+    EOFF(sp, ENT_OFF_WALKER_DY_REM, uint32_t) = 0;
+    EOFF(sp, ENT_OFF_BYTECODE_SLOT, uint32_t) = ent_ptr_intern((void *)bytecode);
+}
+
+/* TickSpeechBalloon — drains the dismissal timer once per game tick.
+ * When the balloon expires, also fires the speaker-unbind handshake
+ * armed by op 0x09 so the speaker returns to their idle anim. */
 void TickSpeechBalloon(void)
 {
     extern uint32_t g_tick_counter;
-    extern const void *xlat_binary_ptr(uint32_t);
-    extern uint32_t ent_ptr_intern(void *);
     extern Entity *FindEntityByVerbId(uint16_t verb);
-    if (!g_speech_balloon) return;
-    if ((g_tick_counter - g_speech_tick) >= g_speech_dismiss_ticks) {
-        /* Hide + unlink + free. Mirrors `balloon[+9] |= 0x80` then
- * normal entity GC; we GC explicitly since render list owns
- * the pointer. */
-        UnlinkEntity(g_speech_balloon);
-        if (g_speech_balloon->pixels) xfree(g_speech_balloon->pixels);
-        xfree(g_speech_balloon);
-        g_speech_balloon = NULL;
 
-        /* Speaker animation UNBIND — case 9 epilogue:
- *
- * Re-bind the speaker to the dlg_data idle-animation bytecode
- * so they return to neutral pose. Identical to op 0x0E body
- *. */
-        if (g_speech_unbind_speaker != 0 && g_speech_unbind_data != 0) {
-            Entity *sp = FindEntityByVerbId(g_speech_unbind_speaker);
-            if (sp) {
-                const void *bc = xlat_binary_ptr(g_speech_unbind_data);
-                if (bc) {
-                    uint8_t *eb = (uint8_t *)sp;
-                    *(uint16_t *)(eb + 0x3A) &= (uint16_t)~5u;
-                    *(uint16_t *)(eb + 0x38) = 0;
-                    *(uint16_t *)(eb + 0x36) = 0;
-                    *(uint16_t *)(eb + 0x34) = 0;
-                    *(uint16_t *)(eb + 0x3C) = 0;
-                    *(uint16_t *)(eb + 0x42) = 0;
-                    *(uint16_t *)(eb + 0x40) = 0;
-                    *(uint16_t *)(eb + 0x32) = 0;
-                    *(uint32_t *)(eb + 0x50) = 0;
-                    *(uint32_t *)(eb + 0x4C) = 0;
-                    *(uint32_t *)(eb + 0x2C) = ent_ptr_intern((void *)bc);
-                    *(uint16_t *)(eb + 0x30) = 0;
-                }
-            }
-            g_speech_unbind_speaker = 0;
-            g_speech_unbind_data    = 0;
+    if (!g_speech_balloon) return;
+    if ((g_tick_counter - g_speech_tick) < g_speech_dismiss_ticks) return;
+
+    /* Time's up — tear down the balloon. The render list owns the
+     * pointer, so we have to GC explicitly. */
+    clear_speech_balloon();
+
+    /* Optional speaker walker-bytecode unbind, armed by op 0x09. */
+    if (g_speech_unbind_speaker != 0 && g_speech_unbind_data != 0) {
+        Entity *sp = FindEntityByVerbId(g_speech_unbind_speaker);
+        if (sp) {
+            const void *bc = xlat_binary_ptr(g_speech_unbind_data);
+            if (bc) rebind_speaker_to_bytecode(sp, bc);
         }
+        g_speech_unbind_speaker = 0;
+        g_speech_unbind_data    = 0;
     }
 }
 
