@@ -113,7 +113,7 @@ extern void ScriptCallDialogEnd  (const char *result);
 /* Register-file accessors (var_get/var_set) and bytecode scanners
  * (skip_to_endif, find_label) moved to src/vm/parser.{c,h}. Local
  * aliases keep the inline call sites readable. */
-#include "vm/parser.h"
+#include "parser.h"
 #define var_get        vm_var_get
 #define var_set        vm_var_set
 #define skip_to_endif  vm_skip_to_endif

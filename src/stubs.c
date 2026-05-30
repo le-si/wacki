@@ -1343,59 +1343,7 @@ uint32_t g_frame_delta_ms = 16;
  * clean multiple of 10 (e.g. 16 ms @ 60 fps emits 2/1/2/1/… ticks). */
 uint16_t g_frame_delta_ticks = 1;
 
-/* ------------------------------------------------------------------------- *
- * WackiRand — 1:1 port of FUN_00410F50 @ 0x00410F50.
- *
- * Original:
- *   if (DAT_00445EBC) {                       // seed-needed flag
- *     FUN_00416750(&DAT_00479484);            // = local time hash → seed
- *     DAT_00445EBC = 0;
- *   }
- *   DAT_00479484 = ROL32(DAT_00479484, 3) + 0x3D8A479C;
- *   uint16_t low = DAT_00479484 & 0xFFFF;
- *   if (low >= bound) {                       // map to [0, bound)
- *     pow2 = 1; while (pow2 < bound) pow2 <<= 1;
- *     low &= pow2 - 1;
- *     if (low >= bound) low -= bound;
- *   }
- *   return low;
- *
- * Seed source: original uses GetLocalTime + GetTimeZoneInformation hashed
- * via FUN_0041B660 (Win32). Our portable version uses time() for the same
- * "unique per session" property — output won't be byte-identical to the
- * original game's RNG sequence, but distribution and per-call advance are.
- * ------------------------------------------------------------------------- */
-static uint32_t g_rand_state    = 0;
-static int      g_rand_seeded   = 0;
-
-void WackiRandSeed(uint32_t seed)
-{
-    g_rand_state  = seed ? seed : 0xDEADBEEFu;
-    g_rand_seeded = 1;
-}
-
-uint32_t WackiRand(uint16_t bound)
-{
-    if (!g_rand_seeded) {
-        /* Seed from time() — mirror FUN_00416750 returning a system-time
-         * hash. We just need entropy unique per session. */
-        WackiRandSeed((uint32_t)time(NULL));
-    }
-    /* ROL32(state, 3) + magic — same advance as original. */
-    g_rand_state = ((g_rand_state << 3) | (g_rand_state >> 29)) + 0x3D8A479Cu;
-    uint32_t low = g_rand_state & 0xFFFFu;
-    uint32_t b = (uint32_t)bound;
-    if (b <= low) {
-        /* Map to [0, bound) via next-power-of-2 mask + subtract. */
-        uint32_t pow2 = 1;
-        if (b > 1) {
-            while (pow2 < b) pow2 <<= 1;
-        }
-        low &= (pow2 - 1);
-        if (b <= low) low -= b;
-    }
-    return low;
-}
+/* WackiRand / WackiRandSeed moved to src/util/rng.c. */
 
 /* =========== positional sound queue ======================================
  *
