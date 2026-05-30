@@ -1,0 +1,34 @@
+# Build artifacts
+wacki
+wacki-debug
+dta-extract
+pkv2-depack
+tests/run-tests
+*.dSYM/
+*.o
+*.a
+
+# Runtime saves
+Wacki.sav
+
+# Logs / diagnostics
+*.log
+diag-*.log
+diag2.log
+
+# Game assets (symlinked, not committed)
+/data
+/data/
+
+# Debug screenshots / dumps
+*.bmp
+
+# Reverse-engineering analysis notes (kept locally, not pushed)
+ANALYSIS.md
+ANALYSIS/
+
+# Editor / OS metadata
+.DS_Store
+.idea/
+.vscode/
+*.swp
