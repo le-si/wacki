@@ -1,8 +1,9 @@
-# Build artifacts
-wacki
-wacki-debug
-dta-extract
-pkv2-depack
+# Build artifacts (anchored to repo root — must NOT match
+# include/wacki/ subdirectory).
+/wacki
+/wacki-debug
+/dta-extract
+/pkv2-depack
 tests/run-tests
 *.dSYM/
 *.o
