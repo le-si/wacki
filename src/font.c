@@ -64,43 +64,94 @@ static inline uint32_t be32(const uint8_t *p)
 static inline uint16_t be16(const uint8_t *p)
 { return (uint16_t)((p[0]<<8) | p[1]); }
 
+/* ---- .fut font header layout -------------------------------------- */
+
+/* Magic values in the .fut header. All multi-byte values are BIG-ENDIAN. */
+#define FUT_MAGIC                       0x3F3
+#define FUT_SUB_MAGIC_A                 0x3E9
+#define FUT_SUB_MAGIC_B                 0x3EA
+
+/* Sentinel that confirms the header layout we know how to parse. The
+ * byte at FUT_OFF_CELL_WIDTH_SENTINEL must equal FUT_CELL_WIDTH_OK. */
+#define FUT_OFF_CELL_WIDTH_SENTINEL     0x62
+#define FUT_CELL_WIDTH_OK               0x0C
+
+/* Fixed header field offsets. */
+#define FUT_OFF_MAGIC                   0x00
+#define FUT_OFF_SUB_MAGIC               0x18
+#define FUT_OFF_CELL_BASE               0x20   /* all later offsets relative to this */
+#define FUT_OFF_BASELINE_BE16           0x6E   /* baseline = (raw[0x6E]<<8) | raw[0x6F] */
+#define FUT_OFF_FLAGS_BYTE              0x70   /* bit 0x40 = multi-plane font */
+#define FUT_OFF_ADVANCE                 0x72
+#define FUT_OFF_CELL_WIDTH              0x74
+#define FUT_OFF_FIRST_CHAR              0x7A
+#define FUT_OFF_LAST_CHAR               0x7B
+#define FUT_OFF_PLANE0_OFFSET           0x7C   /* 1-bpp font: single plane */
+#define FUT_OFF_GLYPH_STRIDE            0x80
+#define FUT_OFF_WIDTH_TAB_OFFSET        0x82
+#define FUT_OFF_ADVANCE_TAB_OFFSET      0x86
+#define FUT_OFF_KERN_TAB_OFFSET         0x8A
+#define FUT_OFF_PLANE_COUNT             0x90   /* multi-plane only */
+#define FUT_OFF_PLANE_TABLE             0x9A   /* multi-plane: 4 bytes per plane */
+#define FUT_FLAG_MULTI_PLANE            0x40
+#define FUT_PLANE_OFFSET_ENTRY_BYTES    4
+
+/* Decode the .fut flags byte: 1-bpp (default) or multi-plane. */
+static int fut_is_multi_plane(const uint8_t *raw)
+{
+    return (raw[FUT_OFF_FLAGS_BYTE] & FUT_FLAG_MULTI_PLANE) != 0;
+}
+
+/* Resolve the per-plane bitmap pointers from the header. The single-
+ * plane path uses a fixed offset; the multi-plane path reads N table
+ * entries (one BE32 per plane). */
+static void fut_resolve_planes(FontHandle *f, const uint8_t *raw,
+                               const uint8_t *cell_base)
+{
+    if (!fut_is_multi_plane(raw)) {
+        f->plane_count = 1;
+        uint32_t off = be32(raw + FUT_OFF_PLANE0_OFFSET);
+        f->plane[0] = (uint8_t *)cell_base + off;
+        return;
+    }
+
+    f->plane_count = raw[FUT_OFF_PLANE_COUNT];
+    for (int i = 0; i < f->plane_count; ++i) {
+        uint32_t off = be32(raw + FUT_OFF_PLANE_TABLE +
+                            i * FUT_PLANE_OFFSET_ENTRY_BYTES);
+        if (off) f->plane[i] = (uint8_t *)cell_base + off;
+    }
+}
+
 /* ------------------------------------------------------------------------- *
- * ParseFutFontFile — 0x00413690
+ * ParseFutFontFile — decode a .fut font file into a FontHandle. Returns
+ * NULL on magic mismatch / cell-width-sentinel mismatch / OOM.
  * ------------------------------------------------------------------------- */
 FontHandle *ParseFutFontFile(const uint8_t *raw)
 {
-    if (be32(raw) != 0x3F3) return NULL;
-    uint32_t sub = be32(raw + 0x18);
-    if (sub != 0x3E9 && sub != 0x3EA) return NULL;
-    if (raw[0x62] != 0x0C)            return NULL;     /* cell-width sentinel */
+    if (be32(raw + FUT_OFF_MAGIC) != FUT_MAGIC) return NULL;
+    uint32_t sub = be32(raw + FUT_OFF_SUB_MAGIC);
+    if (sub != FUT_SUB_MAGIC_A && sub != FUT_SUB_MAGIC_B) return NULL;
+    if (raw[FUT_OFF_CELL_WIDTH_SENTINEL] != FUT_CELL_WIDTH_OK) return NULL;
 
     FontHandle *f = (FontHandle *)xmalloc(sizeof *f);
     if (!f) return NULL;
     memset(f, 0, sizeof *f);
 
-    f->advance      = be16(raw + 0x72);
-    f->baseline     = (uint16_t)((raw[0x6E]<<8) | raw[0x6F]);
-    f->glyph_stride = be16(raw + 0x80);
-    f->cell_width   = be16(raw + 0x74);
-    f->first_char   = raw[0x7A];
-    f->last_char    = raw[0x7B];
+    f->advance      = be16(raw + FUT_OFF_ADVANCE);
+    f->baseline     = (uint16_t)((raw[FUT_OFF_BASELINE_BE16    ] << 8)
+                               |  raw[FUT_OFF_BASELINE_BE16 + 1]);
+    f->glyph_stride = be16(raw + FUT_OFF_GLYPH_STRIDE);
+    f->cell_width   = be16(raw + FUT_OFF_CELL_WIDTH);
+    f->first_char   = raw[FUT_OFF_FIRST_CHAR];
+    f->last_char    = raw[FUT_OFF_LAST_CHAR];
 
-    const uint8_t *cell_base = raw + 0x20;
-    if (!(raw[0x70] & 0x40)) {
-        /* 1-bpp */
-        f->plane_count = 1;
-        uint32_t off = be32(raw + 0x7C);
-        f->plane[0] = (uint8_t *)cell_base + off;
-    } else {
-        f->plane_count = raw[0x90];
-        for (int i = 0; i < f->plane_count; ++i) {
-            uint32_t off = be32(raw + 0x9A + i*4);
-            if (off) f->plane[i] = (uint8_t *)cell_base + off;
-        }
-    }
-    f->width_tab   = (uint8_t *)cell_base + be32(raw + 0x82);
-    f->advance_tab = (uint8_t *)cell_base + be32(raw + 0x86);   /* T101: was yoff_tab */
-    f->kern_tab    = (uint8_t *)cell_base + be32(raw + 0x8A);
+    const uint8_t *cell_base = raw + FUT_OFF_CELL_BASE;
+    fut_resolve_planes(f, raw, cell_base);
+
+    f->width_tab   = (uint8_t *)cell_base + be32(raw + FUT_OFF_WIDTH_TAB_OFFSET);
+    f->advance_tab = (uint8_t *)cell_base + be32(raw + FUT_OFF_ADVANCE_TAB_OFFSET);
+    f->kern_tab    = (uint8_t *)cell_base + be32(raw + FUT_OFF_KERN_TAB_OFFSET);
     return f;
 }
 
