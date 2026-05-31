@@ -973,9 +973,13 @@ int g_dev_start_stage = 0;
 #define ENTITY_STATE_FIELDS_PER_ENTRY   4
 #define ENTITY_STATE_INVENTORY_FIELD    1
 
-/* g_game_over_code progress signals (anything else = user quit). */
+/* g_game_over_code progress signals + the "user-confirmed quit to main
+ * menu" sentinel set by ESC / F12→TAK / OPCJE→Quit. Anything other than
+ * NONE / DEATH / CHAPTER_PICK / STAGE_END_AVI is treated as a user-quit
+ * intent by the dev start-stage flow. */
 #define GAME_OVER_NONE                  0
 #define GAME_OVER_DEATH                 1
+#define GAME_OVER_USER_QUIT             2
 #define GAME_OVER_CHAPTER_PICK          3
 #define GAME_OVER_STAGE_END_AVI         4
 
@@ -2510,75 +2514,98 @@ SceneDef g_load_menu_scene = {
     .after_paint = paint_slot_list,
 };
 
-/* OpszynsClick — (dispatcher).
- * Maps clicked button id (trigger) to its sub-menu. Button id mapping
- * verified from disassembly @ 0x0040b04a..0x0040b09f:
- *
- * trigger sub-menu SceneDef VA handler VA purpose
- * ------------------------------------------------------------
- * 0x12 0x00445C38 0x0040adc0 Grafika.pic
- * 0x13 0x00445C60 0x0040ae90 Solund.pic
- * 0x14 0x00445BD8 0x0040a960 Sejw.pic (SAVE slots)
- * 0x15 0x00445B78 0x0040a6b0 Load.pic (LOAD slots)
- * 0x16 0x00445B58 0x0040a690 Pytanie.pic — if returns
- * 3 → set g_game_over=2
- * 0x17 (no sub-menu) exit opszyns → return 3
- *
- * Polish naming note: "Sejw" (the SceneDef file name) = save (Polish gaming
- * slang for "save game"). Earlier port comment mis-annotated 0x14 as
- * "load slots" and 0x15 as "save slots" — actually reversed: Sejw.pic is
- * the SAVE picker, Load.pic is the LOAD picker.
- */
+/* ---- opszyns.pic options-menu constants --------------------------- */
+
+/* Triggers the opszyns.wyc mask emits per button. Each routes to a
+ * sub-menu (or to exit-self). The Polish naming convention: "Sejw" is
+ * the SAVE picker, "Load" is the LOAD picker — an earlier port comment
+ * had them reversed. */
+#define OPSZYNS_BTN_GRAFIKA             0x12  /* Grafika.pic */
+#define OPSZYNS_BTN_SOLUND              0x13  /* Solund.pic  */
+#define OPSZYNS_BTN_SAVE                0x14  /* Sejw.pic    */
+#define OPSZYNS_BTN_LOAD                0x15  /* Load.pic    */
+#define OPSZYNS_BTN_QUIT                0x16  /* Pytanie.pic */
+#define OPSZYNS_BTN_EXIT                0x17  /* close opszyns */
+
+/* OpszynsClick / sub-menu return codes. 0 = stay open, 3 = close +
+ * propagate (e.g. save committed, quit confirmed). */
+#define OPSZYNS_RC_KEEP_OPEN            0
+#define OPSZYNS_RC_CLOSE                3
+#define SUBMENU_RC_COMMITTED            3
+
+/* opszyns.wyc atlas — no def frames (slots use FRAME_NONE), one hover
+ * frame per button slot in the same order as the buttons[] array. */
+#define OPSZYNS_FRAME_NONE              0xFFFF
+#define OPSZYNS_BUTTON_COUNT            6
+
+/* Sub-menu helper: run one of opszyns's "commit-propagates-close"
+ * children (SAVE / LOAD). Returns CLOSE if the child committed,
+ * KEEP_OPEN otherwise. */
+static int run_commit_propagating_submenu(SceneDef *scene)
+{
+    int rc = RunMenuScene(1, scene);
+    return rc == SUBMENU_RC_COMMITTED ? OPSZYNS_RC_CLOSE
+                                      : OPSZYNS_RC_KEEP_OPEN;
+}
+
+/* OpszynsClick — opszyns.pic dispatcher. Maps the clicked button id
+ * to its sub-menu (or to exit-self). A non-zero return propagates up
+ * to OpenOptionsMenu, which closes the options overlay. */
 static int OpszynsClick(int trigger)
 {
-    int rc;
     switch (trigger) {
-    case 0x12:
+    case OPSZYNS_BTN_GRAFIKA:
         RunMenuScene(1, &g_grafika_scene);
-        return 0;
-    case 0x13:
+        return OPSZYNS_RC_KEEP_OPEN;
+
+    case OPSZYNS_BTN_SOLUND:
         RunMenuScene(1, &g_solund_scene);
-        return 0;
-    case 0x14:
-        /* If save committed (returns 3), propagate exit code so opszyns
- * also closes and the player is back in-game. Returning 0 here
- * left the options menu hanging open after a successful save. */
-        rc = RunMenuScene(1, &g_save_menu_scene);    /* Sejw.pic = SAVE */
-        return rc == 3 ? 3 : 0;
-    case 0x15:
-        /* Same propagation for load — commit must drop the player into
- * the loaded scene, not into opszyns. */
-        rc = RunMenuScene(1, &g_load_menu_scene);    /* Load.pic = LOAD */
-        return rc == 3 ? 3 : 0;
-    case 0x16:
-        rc = RunMenuScene(1, &g_pytanie_scene);
-        /* @ 0x0040b0a4-b8: if Pytanie returned 3
- * (= "Tak"), set game_over_code = 2 + propagate exit. */
-        if (rc == 3) {
-            g_game_over_code = 2;
-            fprintf(stderr, "[opt] Pytanie: quit confirmed → game_over=2\n");
-            return 3;
+        return OPSZYNS_RC_KEEP_OPEN;
+
+    case OPSZYNS_BTN_SAVE:
+        /* If save committed, propagate the close so the player ends
+         * up back in-game instead of hanging in the options menu. */
+        return run_commit_propagating_submenu(&g_save_menu_scene);
+
+    case OPSZYNS_BTN_LOAD:
+        /* Same propagation for load — a successful load must drop the
+         * player into the loaded scene, not back into options. */
+        return run_commit_propagating_submenu(&g_load_menu_scene);
+
+    case OPSZYNS_BTN_QUIT: {
+        int rc = RunMenuScene(1, &g_pytanie_scene);
+        if (rc == PYTANIE_RC_TAK) {
+            g_game_over_code = GAME_OVER_USER_QUIT;
+            fprintf(stderr, "[opt] Pytanie: quit confirmed → game_over=%d\n",
+                    GAME_OVER_USER_QUIT);
+            return OPSZYNS_RC_CLOSE;
         }
-        return 0;
-    case 0x17:
-        return 3;       /* exit back to game */
+        return OPSZYNS_RC_KEEP_OPEN;
+    }
+
+    case OPSZYNS_BTN_EXIT:
+        return OPSZYNS_RC_CLOSE;
+
     default:
-        return 0;
+        return OPSZYNS_RC_KEEP_OPEN;
     }
 }
 
-/* opszyns.pic scene def —
- * 6 buttons with no def_anim (0xFFFF), each shows a hover sprite when
- * the mouse is over the button's hot rect. */
+/* opszyns.pic SceneDef — 6 buttons; no def frame (FRAME_NONE), one
+ * hover frame per slot in slot order. */
 static SceneDef g_opszyns_scene = {
     .background_pic = "opszyns.pic",
     .mask_file      = "opszyns.wyc",
     .on_click       = OpszynsClick,
-    .button_count   = 6,
+    .button_count   = OPSZYNS_BUTTON_COUNT,
     .flags          = SCENE_FLAG_REDRAW | SCENE_FLAG_FADE,
     .buttons = {
-        { 0x12, 0xFFFF, 0 }, { 0x13, 0xFFFF, 1 }, { 0x14, 0xFFFF, 2 },
-        { 0x15, 0xFFFF, 3 }, { 0x16, 0xFFFF, 4 }, { 0x17, 0xFFFF, 5 },
+        { OPSZYNS_BTN_GRAFIKA, OPSZYNS_FRAME_NONE, 0 },
+        { OPSZYNS_BTN_SOLUND,  OPSZYNS_FRAME_NONE, 1 },
+        { OPSZYNS_BTN_SAVE,    OPSZYNS_FRAME_NONE, 2 },
+        { OPSZYNS_BTN_LOAD,    OPSZYNS_FRAME_NONE, 3 },
+        { OPSZYNS_BTN_QUIT,    OPSZYNS_FRAME_NONE, 4 },
+        { OPSZYNS_BTN_EXIT,    OPSZYNS_FRAME_NONE, 5 },
     },
 };
 
@@ -3167,12 +3194,9 @@ extern void    EntityRenderAll (Entity *head);
 #define PERSPECTIVE_SCALE_MIN_PCT   30
 #define PERSPECTIVE_SCALE_MAX_PCT   160
 
-/* g_game_over_code value the engine treats as "user-confirmed quit to
- * main menu" — set by ESC, F12 → TAK, and the OPCJE→Quit cascade. */
-#define GAME_OVER_USER_QUIT         2
-
-/* F12 Pytanie return codes (from PytanieClick). */
-#define PYTANIE_RC_TAK_QUIT         3
+/* GAME_OVER_USER_QUIT (2) + PYTANIE_RC_TAK (3) are defined earlier in
+ * the file — RunMainGameLoop constants + play_demo_scene's F12 handler
+ * both consume them, and so does OpszynsClick further up. */
 
 /* QuickSave / QuickLoad live in slot 0 with the literal name "Quick"
  * so the user can tell quicksaves apart from named saves in the Load
@@ -3339,7 +3363,7 @@ static void handle_pause_menu_request(int *quit, const char **next_scene)
     extern SceneDef g_pytanie_scene;
     int rc = RunMenuScene(1, &g_pytanie_scene);
     fprintf(stderr, "[scene] F12 Pytanie rc=%d\n", rc);
-    if (rc == PYTANIE_RC_TAK_QUIT) {
+    if (rc == PYTANIE_RC_TAK) {
         g_game_over_code = GAME_OVER_USER_QUIT;
         *quit = 1;
         *next_scene = NULL;
