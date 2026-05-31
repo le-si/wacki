@@ -1,152 +1,179 @@
-/* src/scene/actor_walk.c — blocking actor walk dispatch.
+/* src/scene/actor_walk.c — blocking actor-walk dispatch.
  *
  * Script opcodes 0x10 (walk Ebek), 0x11 (walk Fjej), and 0x12 (walk
- * both) drive the actor to a target position synchronously — the
- * script blocks the VM tick on the walker until the actor reaches
- * the target or the walk is interrupted by a click.
+ * both) drive an actor to a target position synchronously — the
+ * script's VM tick blocks on the walker until the actor reaches the
+ * target or the walk is interrupted by a click.
  *
- * The work itself is implemented via BindActorWalker (actor/walker.c)
- * which sets up Bresenham state, plants the walk anim, and binds the
- * per-entity VM. This module just provides the blocking wait loop
- * that pumps frames until the walker drains.
- */
+ * The actual movement is set up by BindActorWalker (src/actor/
+ * walker.c) — it plants Bresenham state on the entity, binds the
+ * walk-anim bytecode, and arms the per-entity VM. This module
+ * provides the two blocking wait loops on top of that:
+ *
+ *   ActorWalkToBlocking   — op 0x10 / 0x11: single-actor synchronous
+ *   ActorWalkBothBlocking — op 0x12: stagger actor 0 by ~500 ms, bind
+ *                          actor 1, then wait for one or both
+ *
+ * Both leave g_script_vars[SCRIPT_VAR_INTERRUPTED_FLAG] = 1 on click
+ * interruption, 0 on natural drain — the calling verb script reads
+ * that to decide whether to abort or fall through to the next op. */
 
 #include "wacki.h"
-#include <SDL.h>
 
+#include <SDL.h>
 #include <stdint.h>
 #include <stdio.h>
 
 extern int  BindActorWalker(int actor_idx, int target_x, int target_y);
 extern void ProcessGameFrameTick(void);
 
-void ActorWalkToBlocking(int idx, int16_t tx, int16_t ty)
+/* ---- constants ---------------------------------------------------- */
+
+/* Frame pacing target while the script blocks — same 33 ms (≈ 30 fps)
+ * as the main play_demo_scene loop, so the blocking wait doesn't
+ * change the visible animation speed. */
+#define WALK_FRAME_DELAY_MS                 33
+
+/* Walker safety caps. The wait loop bails after this many iterations
+ * regardless of whether the walker drained — defensive against an
+ * accidentally-NaN target or a stuck walker keeping the script alive
+ * forever. ~1024 iterations × 33 ms ≈ 33 s, well past any normal walk. */
+#define WALK_SINGLE_SAFETY_ITERS            1024
+#define WALK_BOTH_SAFETY_ITERS              2048
+
+/* op 0x12 "walk together" stagger — actor 0 walks alone for ~50 ticks
+ * (≈ 500 ms at 100 Hz multimedia timer) before actor 1 starts moving,
+ * giving the visible "Wacki + Fjej walk together" cue. */
+#define WALK_STAGGER_TICKS                  0x32
+#define WALK_STAGGER_FALLBACK_TICK_DELTA    3   /* when g_frame_delta_ticks is 0 */
+
+/* g_script_vars index that carries the "interrupted by click" flag
+ * back to the calling verb script. */
+#define SCRIPT_VAR_INTERRUPTED_FLAG         4
+
+/* op 0x12 mode bits. mode == 0 → wait for BOTH actors; non-zero →
+ * wait for actor 0 only. */
+#define WALK_BOTH_MODE_WAIT_BOTH            0
+
+/* ---- helpers ---------------------------------------------------- */
+
+/* Returns 1 if the actor's walker still has remaining steps (either
+ * axis non-zero), 0 when it has drained. */
+static int actor_walker_busy(Entity *e)
 {
-    extern Entity *g_actor[2];
-    if (idx < 0 || idx > 1 || !g_actor[idx]) return;
-    Entity *e = g_actor[idx];
     uint8_t *eb = (uint8_t *)e;
-
-    /* Already at target — original short-circuits via the outer if. */
-    if ((int)*(int16_t *)(eb + 0x22) == (int)tx &&
-        (int)*(int16_t *)(eb + 0x24) == (int)ty) {
-        return;
-    }
-
-    /* Bind walker bytecode + plant path (BindActorWalker does the full
- *-bind tail). */
-    if (!BindActorWalker(idx, (int)tx, (int)ty)) {
-        return;
-    }
-
-    /* Pump frames until walker drains OR user clicks (interrupt).
- * LAB: g_lmb_clicked = 0; var[4] = g_lmb_handled; g_lmb_handled = 0;
- *
- * So loop exits early on user click (g_lmb_clicked nonzero AFTER
- * a PGFT iteration). var[4] = 1 if interrupted by click, 0 if
- * walker drained. */
-    int interrupted = 0;
-    int safety = 1024;
-    while (safety-- > 0) {
-        uint32_t wdx = *(uint32_t *)(eb + 0x4C);
-        uint32_t wdy = *(uint32_t *)(eb + 0x50);
-        if (wdx == 0 && wdy == 0) break;                       /* walker drained */
-        ProcessGameFrameTick();
-        if (PlatformShouldQuit() || g_game_over_code) break;
-        if (g_lmb_clicked) { interrupted = 1; break; }         /* early exit */
-        SDL_Delay(33);  /* T-anim-speed: match main loop pacing */
-    }
-    /* : consume the click, set var[4] from interrupt flag,
- * clear g_lmb_handled (= g_lmb_handled). The verb-script's nested IF
- * (var[4]==1) reads var[4] to decide whether to abort (e.g. verb-7
- * @ 0x00427B90 offset 40 → END_FORCE if interrupted; else fall
- * through to op 0x20 GO_EXIT). g_lmb_handled clear is important
- * because some downstream code paths read it as a click-pending
- * latch — leaving it set across script boundary can confuse
- * subsequent click dispatch. */
-    g_lmb_clicked = 0;
-    g_lmb_handled = 0;
-    g_script_vars[4] = (uint32_t)interrupted;
+    uint32_t wdx = EOFF(eb, ENT_OFF_WALKER_DX_REM, uint32_t);
+    uint32_t wdy = EOFF(eb, ENT_OFF_WALKER_DY_REM, uint32_t);
+    return wdx != 0 || wdy != 0;
 }
 
-/* ActorWalkBothBlocking
- * dispatch (Ghidra @ RunScriptInterpreter case 0x12, line ~582):
- *
- * setup actor 0 walker → target = (tx, ty)
- * wait 0x32 ticks (≈ 50ms via g_frame_delta_ticks decrement loop)
- * setup actor 1 walker → target = (tx, ty)
- * if (mode == 0) wait for BOTH to arrive
- * else wait for actor 0 only
- *
- * The 50-tick stagger is the visible "Wacki + Fjej walk together" effect
- * (Fjej starts a few frames after Wacki). With the port's
- * play_demo_scene walker NOT integrated into ProcessGameFrameTick yet,
- * we approximate by interleaving the two ActorWalkToBlocking-style
- * step loops in a single function. */
+/* Common epilogue for both blocking-walk variants: consume the click
+ * flag, write the interrupted indicator to var[4], and clear g_lmb_
+ * handled so subsequent click dispatch doesn't see a stale latch. */
+static void walk_epilogue(int interrupted)
+{
+    g_lmb_clicked = 0;
+    g_lmb_handled = 0;
+    g_script_vars[SCRIPT_VAR_INTERRUPTED_FLAG] = (uint32_t)interrupted;
+}
+
+/* ---- single-actor blocking walk (op 0x10 / 0x11) ---------------- */
+
+void ActorWalkToBlocking(int idx, int16_t tx, int16_t ty)
+{
+    if (idx < 0 || idx > 1 || !g_actor[idx]) return;
+    Entity  *e  = g_actor[idx];
+    uint8_t *eb = (uint8_t *)e;
+
+    /* Already at target — original short-circuits before binding the
+     * walker so the per-entity VM doesn't run a 0-step plant. */
+    if ((int)EOFF(eb, ENT_OFF_ANCHOR_X, int16_t) == (int)tx &&
+        (int)EOFF(eb, ENT_OFF_ANCHOR_Y, int16_t) == (int)ty)
+    {
+        return;
+    }
+
+    if (!BindActorWalker(idx, (int)tx, (int)ty)) return;
+
+    /* Pump frames until the walker drains, the user clicks (interrupt),
+     * or the platform requests quit. */
+    int interrupted = 0;
+    int safety      = WALK_SINGLE_SAFETY_ITERS;
+    while (safety-- > 0) {
+        if (!actor_walker_busy(e)) break;
+        ProcessGameFrameTick();
+        if (PlatformShouldQuit() || g_game_over_code) break;
+        if (g_lmb_clicked) { interrupted = 1; break; }
+        SDL_Delay(WALK_FRAME_DELAY_MS);
+    }
+
+    walk_epilogue(interrupted);
+}
+
+/* ---- both-actor blocking walk (op 0x12) ------------------------- */
+
+/* Drain ~WALK_STAGGER_TICKS of frame-delta ticks before binding actor
+ * 1's walker. The visible effect is Fjej starting a few frames after
+ * Ebek so they walk side-by-side instead of in lock-step. Returns 1
+ * if the user clicked mid-stagger (caller should bail with
+ * interrupted=1), 0 if the stagger drained normally. */
+static int run_stagger_phase(void)
+{
+    extern uint16_t g_frame_delta_ticks;
+    int stagger_left = WALK_STAGGER_TICKS;
+    while (stagger_left > 0) {
+        ProcessGameFrameTick();
+        if (PlatformShouldQuit() || g_game_over_code) return 0;
+        if (g_lmb_clicked) return 1;
+
+        int dt = g_frame_delta_ticks
+               ? (int)g_frame_delta_ticks
+               : WALK_STAGGER_FALLBACK_TICK_DELTA;
+        stagger_left -= dt;
+        SDL_Delay(WALK_FRAME_DELAY_MS);
+    }
+    return 0;
+}
+
+/* Returns 1 if any of the bound actors still has walker work to do
+ * (respecting `mode` — mode != 0 only checks actor 0). */
+static int any_bound_actor_busy(const int bound[2], int mode)
+{
+    for (int i = 0; i < 2; ++i) {
+        if (!bound[i] || !g_actor[i]) continue;
+        if (mode != WALK_BOTH_MODE_WAIT_BOTH && i != 0) continue;
+        if (actor_walker_busy(g_actor[i])) return 1;
+    }
+    return 0;
+}
+
 void ActorWalkBothBlocking(int16_t tx, int16_t ty, int mode)
 {
-    extern Entity *g_actor[2];
-    extern uint32_t g_frame_delta_ms;
     if (!g_actor[0] && !g_actor[1]) return;
 
-    /* Bind walker bytecode for both actors via the standard path (same
- * BindActorWalker call the click handler uses). Plants the path
- * immediately so per-entity VM op 0x15/0x16 just steps each frame.
- *
- * The original does setup actor 0 → wait 0x32 ms → setup actor 1
- * (= visible "Wacki + Fjej walk together" stagger). We bind actor 0
- * up front + bind actor 1 only after the stagger drains. */
+    /* Bind actor 0 immediately; actor 1 only after the stagger drains. */
     int bound[2] = { 0, 0 };
     if (g_actor[0]) bound[0] = BindActorWalker(0, (int)tx, (int)ty);
 
-    /* case 0x12 wait loop: exit EARLY on
- * g_lmb_clicked (interrupt) or walker drain. var[4]=1 if click,
- * 0 if drained. Loop must NOT clear g_lmb_clicked mid-loop
- * (original keeps it set until LAB epilogue consumes it). */
     int interrupted = 0;
-
-    /* Phase 1: stagger — actor 0 walks for 0x32=50 TICKS (= ~500 ms) while
- * actor 1 idle. The original op 0x12 head-start loop
- * subtracts g_frame_delta_ticks (ticks) from a constant 0x32. Reading it as
- * 50 ms (g_frame_delta_ms) drained the stagger in ~3 frames at 30 fps
- * — actor 1 started moving almost immediately, killing the "walk
- * together" visual cue. */
-    extern uint16_t g_frame_delta_ticks;
-    int stagger_left = 0x32;
-    while (stagger_left > 0) {
-        ProcessGameFrameTick();
-        if (PlatformShouldQuit() || g_game_over_code) goto done;
-        if (g_lmb_clicked) { interrupted = 1; goto done; }
-        int dt = g_frame_delta_ticks ? (int)g_frame_delta_ticks : 3;
-        stagger_left -= dt;
-        SDL_Delay(33);  /* T-anim-speed: match main loop pacing */
+    if (run_stagger_phase()) {
+        interrupted = 1;
+        goto done;
     }
+    if (PlatformShouldQuit() || g_game_over_code) goto done;
 
     if (g_actor[1]) bound[1] = BindActorWalker(1, (int)tx, (int)ty);
 
-    /* Phase 2: wait until walker(s) drain. mode==0 → both must arrive;
- * mode==1 → only actor 0. */
-    int safety = 2048;
+    /* Wait for the walker(s) to drain. */
+    int safety = WALK_BOTH_SAFETY_ITERS;
     while (safety-- > 0) {
-        int still = 0;
-        for (int i = 0; i < 2; ++i) {
-            if (!bound[i] || !g_actor[i]) continue;
-            if (mode != 0 && i != 0) continue;
-            uint8_t *eb = (uint8_t *)g_actor[i];
-            uint32_t wdx = *(uint32_t *)(eb + 0x4C);
-            uint32_t wdy = *(uint32_t *)(eb + 0x50);
-            if (wdx != 0 || wdy != 0) { still = 1; break; }
-        }
-        if (!still) break;                                /* walker drained */
+        if (!any_bound_actor_busy(bound, mode)) break;
         ProcessGameFrameTick();
         if (PlatformShouldQuit() || g_game_over_code) break;
-        if (g_lmb_clicked) { interrupted = 1; break; }    /* early exit */
-        SDL_Delay(33);  /* T-anim-speed: match main loop pacing */
+        if (g_lmb_clicked) { interrupted = 1; break; }
+        SDL_Delay(WALK_FRAME_DELAY_MS);
     }
+
 done:
-    /* epilogue: consume click + write var[4] + clear
- * g_lmb_handled. See ActorWalkToBlocking's matching epilogue. */
-    g_lmb_clicked = 0;
-    g_lmb_handled = 0;
-    g_script_vars[4] = (uint32_t)interrupted;
+    walk_epilogue(interrupted);
 }
