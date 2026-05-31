@@ -2489,110 +2489,136 @@ static void OpenOptionsMenu(void)
 int s_chapter_pick = 0;              /* 1..4 = picked stage, 0 = none */
 extern SceneDef g_sel_tlo_scene;
 
+/* ---- sel_tlo.pic chapter-select constants ------------------------- */
+
+/* Trigger ids the sel_guz.wyc mask emits when buttons are clicked.
+ * Stages 1..4 are a contiguous 0x12..0x15 range; ACME-complete is 0x16. */
+#define SEL_TLO_TRIGGER_STAGE_FIRST   0x12   /* stage 1 */
+#define SEL_TLO_TRIGGER_STAGE_LAST    0x15   /* stage 4 */
+#define SEL_TLO_TRIGGER_ACME          0x16   /* ACME complete → finale */
+#define SEL_TLO_TRIGGER_NEUTRAL       0x26   /* SCENE_NEUTRAL_VERB */
+
+/* Frame layout in sel_guz.wyc: stage button N has def=N, hover=N+5;
+ * ACME-complete (button 4) has def=4, hover=9. */
+#define SEL_TLO_HOVER_FRAME_OFFSET    5
+#define SEL_TLO_FRAME_NONE            0xFFFF
+
+/* RunMenuScene return codes. SelTloClick returns 3 ("exit menu") on a
+ * picked stage; the caller reads s_chapter_pick (1..5) to dispatch. */
+#define SEL_TLO_RC_KEEP_OPEN          0
+#define SEL_TLO_RC_PICK_MADE          3
+
+/* s_chapter_pick values — 1..4 = stage 1..4, 5 = Monter finale. */
+#define SEL_TLO_PICK_FINALE_STAGE     5
+
+/* Button slot layout in g_sel_tlo_scene.buttons. */
+#define SEL_TLO_STAGE_BUTTON_COUNT    4
+#define SEL_TLO_ACME_BUTTON_SLOT      4
+#define SEL_TLO_BUTTON_COUNT_PARTIAL  4   /* ACME hidden */
+#define SEL_TLO_BUTTON_COUNT_ALL      5   /* ACME exposed */
+
+/* Scene flag bits OR'd into g_sel_tlo_scene.flags. FORCE_CB drives the
+ * trigger==0 per-tick path; DISABLE_ESC stops ESC from quitting; KEEP
+ * IMAGE preserves the painted background between frames. */
+#define SEL_TLO_SCENE_FLAGS           0x34
+
 static int SelTloClick(int trigger)
 {
-    /* trigger==0 is the per-frame CB dispatch enabled by SCENE_FLAG_FORCE_CB.
- * Original (HandleAltMenuClick @ 0x0040B3D0): on this path it loads
- * Tlo.pal, sets up the ACME-assembly per-tick animation counters
- * (, ), and per-frame blits successive
- * sel_guz frames (starting at frame 10) to compose ACME. PORT
- * SHORTCUT (refer ): animation itself not yet ported —
- * the assembled-ACME state is conveyed visually by buttons 0..3
- * going invisible (def/hover=0xFFFF) once their bit in
- * g_completed_stages flips. The 5th button (id=0x16, def=4, hover=9)
- * remains as the explicit "click to start finale" cue. */
-    if (trigger == 0) return 0;
+    /* trigger==0 is the per-frame callback path enabled by FORCE_CB —
+     * the original wires the ACME-assembly animation through it (load
+     * Tlo.pal, blit successive sel_guz frames starting at 10). The
+     * animation itself isn't ported; completion state is conveyed by
+     * each stage button going invisible (def/hover=SEL_TLO_FRAME_NONE)
+     * once its bit in g_completed_stages flips. */
+    if (trigger == 0) return SEL_TLO_RC_KEEP_OPEN;
 
-    /* Buttons 0x12..0x15 = stages 1..4. */
-    if (trigger >= 0x12 && trigger <= 0x15) {
-        int idx = trigger - 0x12;
-        /* Only allow clicking a stage that's NOT yet completed (bit i
- * of g_completed_stages clear). Original makes them neutral
- * (id=0x26) so they don't dispatch, but we double-check here
- * for safety in case the menu is entered with a stale state. */
+    /* Stage buttons 1..4. Only the not-yet-completed ones dispatch;
+     * the refresh pass below makes completed slots neutral, but we
+     * double-check here for safety against stale state. */
+    if (trigger >= SEL_TLO_TRIGGER_STAGE_FIRST &&
+        trigger <= SEL_TLO_TRIGGER_STAGE_LAST)
+    {
+        int idx = trigger - SEL_TLO_TRIGGER_STAGE_FIRST;
         if ((g_completed_stages & (1u << idx)) == 0) {
-            s_chapter_pick = idx + 1;       /* 1..4 */
+            s_chapter_pick = idx + 1;
             fprintf(stderr, "[chapter-select] picked stage %d\n", s_chapter_pick);
-            return 3;       /* exit menu */
+            return SEL_TLO_RC_PICK_MADE;
         }
         fprintf(stderr, "[chapter-select] stage %d already completed — ignore\n",
                 idx + 1);
-        return 0;
+        return SEL_TLO_RC_KEEP_OPEN;
     }
-    /* Button 0x16 — "ACME complete" green button at the bottom of the
- * map. Hit-test only fires when SelTloRefreshButtons has promoted
- * button_count back to 5 (i.e. all 4 stages bits set).
- * HandleAltMenuClick @ 0x0040B47C: = 5, return 8. The
- * caller (RunGameStageLoop / dev loop) then runs LoadStage(5) which
- * launches the "Monter" finale (intro=Dane_12.dta, alt=Dane_11.dta,
- * alt3=Dane_13.dta — end credits sting). */
-    if (trigger == 0x16) {
-        s_chapter_pick = 5;
+
+    /* ACME-complete (stage 5 Monter finale). Hit-test only fires when
+     * SelTloRefreshButtons has promoted button_count to ALL — all four
+     * stages done. The finale loads Dane_12.dta intro, Dane_11.dta
+     * gameplay, Dane_13.dta end-credits sting. */
+    if (trigger == SEL_TLO_TRIGGER_ACME) {
+        s_chapter_pick = SEL_TLO_PICK_FINALE_STAGE;
         fprintf(stderr, "[chapter-select] ACME complete — start finale (stage 5)\n");
-        return 3;
+        return SEL_TLO_RC_PICK_MADE;
     }
-    return 0;
+    return SEL_TLO_RC_KEEP_OPEN;
 }
 
-/* Button slots 0..3 get patched
- * per-call based on `g_completed_stages`; button 4 (id=0x16 "ACME-complete"
- * green finale button) has static frames straight from the binary
- * (+0x2C: 16 00 04 00 09 00). Static button_count = 5 per binary +0x0C;
- * SelTloRefreshButtons downgrades to 4 when not all stages done — 
- * with RunGameStageLoop @ 0x0040C3FA write to g_default_world_state. */
+/* Stage buttons 0..3 are patched per-fire from g_completed_stages;
+ * button 4 (ACME-complete green button) has the static frames listed
+ * below straight from the binary. button_count starts at ALL; the
+ * refresh pass downgrades to PARTIAL when not all stages are done. */
 SceneDef g_sel_tlo_scene = {
     .background_pic = "sel_tlo.pic",
-    /* @ 0x00445D3C: mask = "sel_guz.wyc" (NOT sel_tlo.wyc —
- * that filename doesn't exist in the .DTA archive; earlier port had
- * a typo). Without the correct mask, buttons have no hit-test
- * rectangles → clicks ignored → map appears non-functional. */
+    /* sel_guz.wyc (NOT sel_tlo.wyc — that filename doesn't exist in
+     * the .DTA archive; an earlier port had a typo). Without the
+     * correct mask, buttons have no hit-test rectangles → clicks
+     * ignored → map appears non-functional. */
     .mask_file      = "sel_guz.wyc",
     .on_click       = SelTloClick,
-    .button_count   = 5,
-    /* 0x34 = SCENE_FLAG_FORCE_CB | SCENE_FLAG_DISABLE_ESC | SCENE_FLAG_KEEP_IMAGE.
- * +0x10. Previous flags=0 suppressed the per-tick CB
- * dispatch needed for the original's ACME-assembly animation
- * (HandleAltMenuClick trigger==0 path — animation itself still
- * NOTE, see SelTloClick). */
-    .flags          = 0x34,
+    .button_count   = SEL_TLO_BUTTON_COUNT_ALL,
+    .flags          = SEL_TLO_SCENE_FLAGS,
     .buttons = {
-        { 0x12, 0,    5 },   /* stage 1 — patched per game_over fire */
-        { 0x13, 1,    6 },   /* stage 2 */
-        { 0x14, 2,    7 },   /* stage 3 */
-        { 0x15, 3,    8 },   /* stage 4 */
-        { 0x16, 4,    9 },   /* ACME-complete green button — static frames */
+        { SEL_TLO_TRIGGER_STAGE_FIRST + 0, 0,
+          SEL_TLO_HOVER_FRAME_OFFSET + 0 },   /* stage 1 — patched per fire */
+        { SEL_TLO_TRIGGER_STAGE_FIRST + 1, 1,
+          SEL_TLO_HOVER_FRAME_OFFSET + 1 },   /* stage 2 */
+        { SEL_TLO_TRIGGER_STAGE_FIRST + 2, 2,
+          SEL_TLO_HOVER_FRAME_OFFSET + 2 },   /* stage 3 */
+        { SEL_TLO_TRIGGER_STAGE_FIRST + 3, 3,
+          SEL_TLO_HOVER_FRAME_OFFSET + 3 },   /* stage 4 */
+        { SEL_TLO_TRIGGER_ACME, 4,
+          SEL_TLO_HOVER_FRAME_OFFSET + 4 },   /* ACME-complete — static frames */
     },
 };
 
 /* Patch SceneDef buttons to reflect current completion state. Called
  * right before RunMenuScene(sel_tlo) so the user sees correct lock/
- * unlock states. Mirrors RunGameStageLoop @ 0x0040C2C8-2EE button
- * rebuild loop. */
+ * unlock states. Mirrors the original's pre-RunMenuScene button rebuild. */
 int SelTloRefreshButtons(void)
 {
     int all_done = 1;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < SEL_TLO_STAGE_BUTTON_COUNT; ++i) {
         if (g_completed_stages & (1u << i)) {
             /* Completed — neutral / non-clickable. */
-            g_sel_tlo_scene.buttons[i].id         = 0x26;
-            g_sel_tlo_scene.buttons[i].def_anim   = 0xFFFF;
-            g_sel_tlo_scene.buttons[i].hover_anim = 0xFFFF;
+            g_sel_tlo_scene.buttons[i].id         = SEL_TLO_TRIGGER_NEUTRAL;
+            g_sel_tlo_scene.buttons[i].def_anim   = SEL_TLO_FRAME_NONE;
+            g_sel_tlo_scene.buttons[i].hover_anim = SEL_TLO_FRAME_NONE;
         } else {
             /* Available — normal id + frames. */
-            g_sel_tlo_scene.buttons[i].id         = (uint16_t)(0x12 + i);
+            g_sel_tlo_scene.buttons[i].id         =
+                (uint16_t)(SEL_TLO_TRIGGER_STAGE_FIRST + i);
             g_sel_tlo_scene.buttons[i].def_anim   = (uint16_t)i;
-            g_sel_tlo_scene.buttons[i].hover_anim = (uint16_t)(i + 5);
+            g_sel_tlo_scene.buttons[i].hover_anim =
+                (uint16_t)(i + SEL_TLO_HOVER_FRAME_OFFSET);
             all_done = 0;
         }
     }
-    /* button[4] (ACME-complete green button, id=0x16) is exposed only
- * when all 4 stages finished. @ 0x0040C3FA:
- * if (bVar22) g_default_world_state = 5; // all done → 5 buttons live
- * else g_default_world_state = 4; // some pending → 4 buttons
- * `button_count` IS g_default_world_state (SceneDef +0x0C). With count=4 the
- * 5th slot stays in memory but never gets hit-tested, painted, or
- * dispatched — so the green graphic disappears until ACME is full. */
-    g_sel_tlo_scene.button_count = all_done ? 5 : 4;
+    /* ACME-complete (slot 4, id=SEL_TLO_TRIGGER_ACME) is exposed only
+     * when all four stages are finished. With count=PARTIAL the 5th
+     * slot stays in memory but is never hit-tested, painted, or
+     * dispatched — so the green graphic disappears until ACME is
+     * complete. */
+    g_sel_tlo_scene.button_count = all_done
+        ? SEL_TLO_BUTTON_COUNT_ALL
+        : SEL_TLO_BUTTON_COUNT_PARTIAL;
     return all_done;
 }
 
