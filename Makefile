@@ -55,7 +55,7 @@ ENGINE_SRCS = \
 	src/audio/sound_queue.c                                       \
 	src/script_bridge/palette.c src/script_bridge/entity.c        \
 	src/text/balloon.c src/anim/resolver.c src/util/screenshot.c  \
-	src/menu/chapter_select.c
+	src/menu/chapter_select.c src/menu/slot_picker.c
 
 TOOL_SRCS_EXTRACT = tools/dta-extract.c src/depack.c src/archive.c \
                     src/cygio.c src/heap.c

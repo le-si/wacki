@@ -32,6 +32,11 @@
 /* ============= Constants ================================================ */
 #define WACKI_SCREEN_W        640
 #define WACKI_SCREEN_H        480
+
+/* Save-slot thumbnail dimensions (sub-sampled gameplay backbuffer
+ * captured before opszyns opens, then stored per-slot in the .sav). */
+#define SAVE_THUMB_W          126
+#define SAVE_THUMB_H          78
 #define WACKI_SCREEN_BPP      8
 #define WACKI_MAX_DIRTY_RECTS 256
 
