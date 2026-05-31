@@ -1,66 +1,26 @@
-/*
- * audio.c — portable audio stubs.
+/* audio.c — SDL audio mixer + music/sfx/dialog dispatch.
  *
- * The original engine drove DirectSound (for SFX), MCI cdaudio (for music
- * straight off CD-DA tracks), and MCI AVIVideo (for cutscenes). None of
- * those exist on Mac/Linux, and the engine doesn't have anywhere to play
- * sound from without the original CD anyway, so this file is reduced to
- * no-op implementations matching the Ghidra prototypes.
+ * The cutscene playback shim (PlaySceneCutsceneAvi + InitializeDirect
+ * Sound) lives in src/audio/cutscene.c — it's the AVI/FLIC entry point
+ * and has no direct dependency on the mixer below.
  *
- * If you ever build the legacy Win32 path (WACKI_WITH_WIN32 + ddraw/dsound),
- * the original audio.c (kept in version control as audio_win32.c) can be
- * dropped in to restore real MCI playback.
- */
-#include "wacki.h"
-#include <stdio.h>
+ * What stays here (for now):
+ *   - The SDL_AudioDevice mixer core + per-channel WAV loader
+ *   - Music API   (PlayMenuMusic / StopMenuMusic / TickMenuMusic)
+ *   - SFX dispatch (Wacky.scr [sampl] parser + TriggerFrameSfx +
+ *                   PlaySfx / PlaySfxLoopAndGetChannel / ...)
+ *   - Dialog line (PlayDialogLine)
+ *   - The per-flag gates (g_audio_music_enabled, _sfx_enabled, etc.)
+ *
+ * Pulled-apart split into src/audio/{mixer,music,sfx}.c is feasible
+ * but blocked on exposing the s_mix array + helpers across TUs. */
 
-/* ------------------------------------------------------------------------- *
- * InitializeDirectSound — 0x0040D0A0
- * In the SDL build we always succeed; nothing actually plays.
- * ------------------------------------------------------------------------- */
-int InitializeDirectSound(void) { return 0; }
-
-/* ------------------------------------------------------------------------- *
- * PlaySceneCutsceneAvi — 0x0040A430
- *
- * The original called MCI AVIVideo to play Dane_10.dta (intro), Dane_14.dta
- * (death), etc. Those files are encoded as Autodesk FLIC (AFLC fourCC)
- * inside an AVI container — a custom decoder we don't ship. For now show
- * a 1-second placeholder splash so the user knows a cutscene would play.
- *
- * To get real playback, drop in a FLIC decoder (or use libavformat) and
- * blit frames into the back-buffer via PaintImageToBackbuffer.
- */
 #include "wacki.h"
 #include <SDL.h>
-
-extern int PlayFlicAviFile(const char *path);   /* flic.c */
-extern char g_cd_path[260];
-
-/* Try to open `name` relative to several roots; on macOS auto-uppercase
- * the file part on the second pass. */
-static int try_play_at(const char *root, const char *name)
-{
-    char p[1024];
-    if (root && *root) snprintf(p, sizeof p, "%s/%s", root, name);
-    else               snprintf(p, sizeof p, "%s", name);
-    if (PlayFlicAviFile(p)) return 1;
-    /* uppercase the last path component */
-    size_t l = strlen(p);
-    size_t i = l;
-    while (i > 0 && p[i-1] != '/' && p[i-1] != '\\') --i;
-    for (size_t j = i; j < l; ++j)
-        if (p[j] >= 'a' && p[j] <= 'z') p[j] &= 0xDF;
-    return PlayFlicAviFile(p);
-}
-
-void PlaySceneCutsceneAvi(const char *avi_name)
-{
-    if (!avi_name) return;
-    if (try_play_at(NULL,       avi_name)) return;
-    if (try_play_at(g_cd_path,  avi_name)) return;
-    if (try_play_at("./data",   avi_name)) return;
-}
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* ------------------------------------------------------------------------- *
  * Audio mixer (T6).

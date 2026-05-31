@@ -53,7 +53,7 @@ ENGINE_SRCS = \
 	src/scene/dispatch.c src/hud/cursor.c                            \
 	src/scene/walkability.c src/scene/scene_input.c                  \
 	src/scene/play_loop.c   src/scene/komnata_scene.c                \
-	src/audio/sound_queue.c                                       \
+	src/audio/sound_queue.c   src/audio/cutscene.c                \
 	src/script_bridge/palette.c src/script_bridge/entity.c        \
 	src/text/balloon.c src/anim/resolver.c src/util/screenshot.c  \
 	src/anim/paint_primitives.c                                   \
