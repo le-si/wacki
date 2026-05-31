@@ -60,7 +60,6 @@ extern void    StopAllSfxForAsset(const char *asset_name);
 #define CLICK_KIND              4
 #define ACTOR_ID_EBEK           1
 #define ACTOR_ID_FJEJ           2
-#define CLICK_OWNER_SLOT_OFFSET 0x0a    /* see ANALYSIS section 6 */
 
 /* Hide/Show flag bits on entity[+0x08]. */
 #define ENT_FLAG_HIDDEN_BIT     0x0080
@@ -101,7 +100,7 @@ static int is_protected_actor_entry(Entity *e, uint16_t k, uint16_t id)
     if (k != CLICK_KIND) return 0;
     if (id != ACTOR_ID_EBEK && id != ACTOR_ID_FJEJ) return 0;
 
-    uint32_t owner_slot = *(uint32_t *)((uint8_t *)e + CLICK_OWNER_SLOT_OFFSET);
+    uint32_t owner_slot = EOFF(e, CLICK_OFF_OWNER_SLOT, uint32_t);
     if (!owner_slot) return 0;
     void *owner = ent_ptr_resolve(owner_slot);
     return owner == g_actor[0] || owner == g_actor[1];

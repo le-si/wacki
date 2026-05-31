@@ -27,9 +27,8 @@
  * - g_maluch_enter_script / g_klatka2_enter_script /
  * g_kiosk21_enter_script / g_plac_enter_script
  *
- * Every removal verified byte-for-byte against PE memory before drop.
- * See review document REVIEW-2026-05.md section C1.
- */
+ * Every removal verified byte-for-byte against PE memory before
+ * drop. */
 #include "wacki.h"
 #include <stddef.h>
 #include <string.h>

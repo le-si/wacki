@@ -24,6 +24,7 @@
  */
 
 #include "wacki.h"
+#include "entity_offsets.h"
 #include "internal.h"
 
 #include <stddef.h>
@@ -123,11 +124,10 @@ int EntityListCount(int click_list)
  * over empty floor.
  */
 
-/* Click-descriptor byte offset for the owner intern slot. The owner
- * entity is the sprite/mask that the click payload "belongs to" —
- * looked up via ent_ptr_resolve to compare against g_actor[0]/[1]. */
-#define CLICK_DESC_OWNER_SLOT_OFFSET 0x0A
-
+/* The click payload's owner slot (= CLICK_OFF_OWNER_SLOT in
+ * entity_offsets.h) is an intern handle for the sprite/mask that the
+ * payload "belongs to" — looked up via ent_ptr_resolve to compare
+ * against g_actor[0]/[1]. */
 #define ACTOR_KIND_SPRITE 2     /* update_table.kind for actor entity */
 #define ACTOR_KIND_CLICK  4     /* update_table.kind for actor click payload */
 #define ACTOR_ID_EBEK     1
@@ -155,7 +155,7 @@ void EntityListClearAll(void)
         Entity *e = g_update_table[r].e;
         if (!e) continue;
 
-        uint32_t owner_slot = *(uint32_t *)((uint8_t *)e + CLICK_DESC_OWNER_SLOT_OFFSET);
+        uint32_t owner_slot = EOFF(e, CLICK_OFF_OWNER_SLOT, uint32_t);
         void    *owner      = owner_slot ? ent_ptr_resolve(owner_slot) : NULL;
         if (owner != g_actor[0] && owner != g_actor[1]) continue;
 
@@ -212,26 +212,27 @@ void EntityListClearAll(void)
     g_update_table_count = w;
 
     /* Walker-state sync: clear mid-walk state on the surviving actors
- * so the new scene's entry-chain starts from a known idle state.
- * Anchor (+0x22/+0x24) and atlas (+0x28) are intentionally left
- * untouched. */
+     * so the new scene's entry-chain starts from a known idle state.
+     * Anchor (ANCHOR_X / ANCHOR_Y) and atlas (ATLAS_SLOT) are
+     * intentionally left untouched. */
     for (int i = 0; i < 2; ++i) {
-        if (!g_actor[i]) continue;
-        uint8_t *eb = (uint8_t *)g_actor[i];
+        Entity *a = g_actor[i];
+        if (!a) continue;
 
-        *(uint16_t *)(eb + 0x32) = 0;        /* script pc */
-        *(uint16_t *)(eb + 0x34) = 0;        /* loop ctr A */
-        *(uint16_t *)(eb + 0x36) = 0;        /* loop ctr B */
-        *(uint16_t *)(eb + 0x38) = 0;        /* loop ctr C */
-        *(uint8_t  *)(eb + 0x3A) &= (uint8_t)~5u;   /* clear walker busy + active */
-        *(uint16_t *)(eb + 0x3C) = 0;        /* delay */
-        *(uint16_t *)(eb + 0x3E) = 0;        /* delay reset */
-        *(uint16_t *)(eb + 0x40) = 0;        /* osc idx X */
-        *(uint16_t *)(eb + 0x42) = 0;        /* osc idx Y */
-        *(uint32_t *)(eb + 0x44) = 0;        /* walker accum X */
-        *(uint32_t *)(eb + 0x48) = 0;        /* walker accum Y */
-        *(uint32_t *)(eb + 0x4C) = 0;        /* walker dx_rem */
-        *(uint32_t *)(eb + 0x50) = 0;        /* walker dy_rem */
+        EOFF(a, ENT_OFF_PC,            uint16_t) = 0;
+        EOFF(a, ENT_OFF_LOOP_A,        uint16_t) = 0;
+        EOFF(a, ENT_OFF_LOOP_B,        uint16_t) = 0;
+        EOFF(a, ENT_OFF_LOOP_C,        uint16_t) = 0;
+        EOFF8(a, ENT_OFF_STATE_FLAGS) &= (uint8_t)~(
+            ESTATE_FRAME_READY | ESTATE_WALKER_FRESH);
+        EOFF(a, ENT_OFF_DELAY,         uint16_t) = 0;
+        EOFF(a, ENT_OFF_DELAY_RESET,   uint16_t) = 0;
+        EOFF(a, ENT_OFF_LOOP_D,        uint16_t) = 0;
+        EOFF(a, ENT_OFF_LOOP_E,        uint16_t) = 0;
+        EOFF(a, ENT_OFF_WALKER_X,      uint32_t) = 0;
+        EOFF(a, ENT_OFF_WALKER_Y,      uint32_t) = 0;
+        EOFF(a, ENT_OFF_WALKER_DX_REM, uint32_t) = 0;
+        EOFF(a, ENT_OFF_WALKER_DY_REM, uint32_t) = 0;
     }
 
     /* Speech balloon (kind=1 entity) is per-scene scenery, not persisted. */
