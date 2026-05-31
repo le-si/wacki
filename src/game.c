@@ -374,114 +374,168 @@ static void SnapshotBackbufferForMenu(void)
  * call at 0x0040B5E0). */
 AnimAsset *g_menu_asset_10 = NULL;
 
+/* ---- Title + main-menu constants ---------------------------------- */
+
+/* Title-screen filenames (Tlo.pal background palette, Tlo.wyc button
+ * mask, menu.pal blended-fade buffer the original cross-fades into,
+ * Dane_01.dta looping menu BGM). */
+#define TITLE_PALETTE_FILENAME          "Tlo.pal"
+#define TITLE_MASK_FILENAME             "Tlo.wyc"
+#define TITLE_BLEND_PALETTE_FILENAME    "menu.pal"
+#define TITLE_INTRO_AVI                 "Dane_10.dta"
+#define CREDITS_AVI                     "Dane_12.dta"
+#define MAIN_MENU_BGM_FILENAME          "Dane_01.dta"
+
+/* Title-screen button triggers (Tlo.wyc mask). Frames in the .wyc are
+ * laid out so that hover frame = def frame + TITLE_HOVER_FRAME_OFFSET.
+ * Note MALUCH (0x14) is the "click the Maluch to start a new game"
+ * button — an earlier RE annotation called it "Options" but the
+ * dispatch (s_save_request → rc=PROLOGUE) makes it the prologue start. */
+#define TITLE_BTN_LOAD                  0x12
+#define TITLE_BTN_NEW                   0x13
+#define TITLE_BTN_MALUCH                0x14
+#define TITLE_BTN_QUIT                  0x15
+#define TITLE_BTN_CREDITS               0x16
+#define TITLE_HOVER_FRAME_OFFSET        5
+#define TITLE_BUTTON_COUNT              5
+
+/* HandleMainMenuClick trigger sentinel: 0 = INIT (one-time per-frame
+ * setup pass when the title is first entered). */
+#define MAIN_MENU_TRIGGER_INIT          0
+
+/* HandleMainMenuClick return codes. RunMainGameLoop's switch dispatches
+ * on them; BACK_TO_MAIN keeps the inner loop running. */
+#define MAIN_MENU_RC_NONE               0
+#define MAIN_MENU_RC_BACK_TO_MAIN       2   /* Load cancel → re-enter title */
+#define MAIN_MENU_RC_QUIT_CONFIRM_A     4
+#define MAIN_MENU_RC_QUIT_CONFIRM_B     8
+#define MAIN_MENU_RC_LOAD_SAVE          5
+#define MAIN_MENU_RC_NEW_GAME           6
+#define MAIN_MENU_RC_PROLOGUE           7
+#define MAIN_MENU_RC_CREDITS            9
+#define MAIN_MENU_RC_HARD_QUIT          99
+
+/* WACKI-logo flipbook in the title's mask atlas (sel_guz.wyc). Frames
+ * 10..(count-1) form the animated logo; FRAME_DOORS_FIRST..DOORS_LAST
+ * are the "doors closing" pose during which the Maluch-click latch
+ * is NOT honoured (let the doors finish before transitioning). */
+#define MAIN_MENU_ANIM_FIRST_FRAME      10
+#define MAIN_MENU_ANIM_DOORS_FIRST      0x0F
+#define MAIN_MENU_ANIM_DOORS_LAST       0x12
+#define MAIN_MENU_ANIM_TICKS_PER_FRAME  6
+
+/* s_menu_flags bit 0 — set on every HandleMainMenuClick call and
+ * cleared once the rc has switched to a "leave the menu" code. */
+#define MAIN_MENU_FLAG_LATCH            0x01u
+
+/* Pytanie (Y/N) quit-confirm. */
+#define PYTANIE_TRIGGER_TAK             0x12
+#define PYTANIE_TRIGGER_NIE             0x13
+#define PYTANIE_RC_TAK                  3
+#define PYTANIE_RC_NIE                  4
+#define PYTANIE_FRAME_NONE              0xFFFF
+
+/* RunGameStageLoop flag bits. */
+#define STAGE_LOAD_FLAG_FULL_RESET      0x02
+#define STAGE_LOAD_FLAG_SAVE_LOAD       0x10
+
+/* Entity-state table layout (flag-2 FULL RESET only zeroes the
+ * in_inventory_flag field per entry, preserving panel_verb_id). */
+#define ENTITY_STATE_ENTRY_COUNT        0x8E
+#define ENTITY_STATE_FIELDS_PER_ENTRY   4
+#define ENTITY_STATE_INVENTORY_FIELD    1
+
+/* g_game_over_code progress signals + the "user-confirmed quit to main
+ * menu" sentinel set by ESC / F12→TAK / OPCJE→Quit. Anything other than
+ * NONE / DEATH / CHAPTER_PICK / STAGE_END_AVI is treated as a user-quit
+ * intent by the dev start-stage flow. */
+#define GAME_OVER_NONE                  0
+#define GAME_OVER_DEATH                 1
+#define GAME_OVER_USER_QUIT             2
+#define GAME_OVER_CHAPTER_PICK          3
+#define GAME_OVER_STAGE_END_AVI         4
+
+/* Dev-mode --start-stage clamps + the "Monter finale" pick value. */
+#define DEV_START_STAGE_MIN             1
+#define DEV_START_STAGE_MAX             5
+#define DEV_PICK_FINALE                 5
+
 /* ------------------------------------------------------------------------- *
- * HandlePytanieClick (the on_click cb for the
- * "Pytanie?" quit-confirmation SceneDef at ).
- *
- * trigger 0 → 0 (init, nothing to do)
- * trigger 0x12 → 3 (TAK / Yes → caller treats 3 as "quit confirmed")
- * trigger 0x13 → 4 (NIE / No → caller loops back to the main menu)
- * anything else → 0
- */
+ * HandlePytanieClick — on_click for the "Pytanie?" quit-confirmation
+ * SceneDef. The two buttons are TAK (yes, quit) and NIE (no, keep
+ * playing); the caller treats PYTANIE_RC_TAK as "quit confirmed". */
 static int HandlePytanieClick(int trigger)
 {
-    if (trigger == 0x12) return 3;
-    if (trigger == 0x13) return 4;
-    return 0;
+    if (trigger == PYTANIE_TRIGGER_TAK) return PYTANIE_RC_TAK;
+    if (trigger == PYTANIE_TRIGGER_NIE) return PYTANIE_RC_NIE;
+    return MAIN_MENU_RC_NONE;
 }
 
-static int HandleMainMenuClick(int trigger)
+/* Install the Tlo.pal primary + load menu.pal into the secondary
+ * (blend-target) palette buffer. The original engine cross-fades
+ * between the two on entry; the port doesn't have the blend pipeline
+ * wired so we just free menu.pal to avoid a leak. */
+static void install_main_menu_palettes(void)
 {
-    int rc = 0;
-    s_menu_flags |= 1;
-
-    switch (trigger) {
-    case 0: {                              /* INIT (per ) */
-        /* @ 0x0040B100 case 0:
- * - clear back-buffer to colour 0
- * - load Tlo.pal as primary palette
- * - load menu.pal as secondary palette buffer
- * - reset animation frame counter to 10 (first logo frame)
- */
-        FlipBuffersClearWith(0);
-        FlushFrameToPrimary();
-
-        void *pal = NULL; uint32_t psz = 0;
-        if (LoadFileFromDta("Tlo.pal", &pal, &psz) && pal) {
-            InstallPalette((uint8_t *)pal, 0);
-            xfree(pal);
-        }
-        if (LoadFileFromDta("menu.pal", &pal, &psz) && pal) {
-            /* original engine stores this at fade_target_buf for blending —
- * we don't have the blend pipeline yet, but free to avoid leak */
-            xfree(pal);
-        }
-        s_anim_frame   = 10;
-        s_anim_delay   = 0;
-        s_save_request = 0;
-        /* 0 in HandleMainMenuClick:
- * path = BuildAssetPath("Dane_01.dta", NULL)
- * handle = (&g_persp_band_count, path, 1) // open looped
- * (&g_persp_band_count, handle) // start
- * Dane_01.dta on this build is a plain RIFF/WAVE on disk. */
-        PlayMenuMusic("Dane_01.dta", 1);
-        break;
+    void    *pal = NULL;
+    uint32_t psz = 0;
+    if (LoadFileFromDta(TITLE_PALETTE_FILENAME, &pal, &psz) && pal) {
+        InstallPalette((uint8_t *)pal, 0);
+        xfree(pal);
     }
-    /* cb is only called with a non-(-1) trigger when a button was clicked
- * (RunMenuScene already filters). The original gated each case on
- * g_panel_cursor_redirect2 (LMB flag) which the host engine cleared *before*
- * calling the cb (per RunMenuScene @ 0x0040B5E0) — so the gate was
- * effectively always false there too. The visible action is reached
- * via the secondary g_lmb_handled flag, which is the saved click
- * state. We simply act on the trigger unconditionally here. */
-    case 0x12: {                            /* Load game submenu */
-        /* Reuse the same g_load_menu_scene used by opszyns dispatcher.
- * LoadSlotClick handles slot pick → LoadSaveSlot + LoadKomnataScene
- * → returns 3 (committed). Cancel returns 4. Anything else stays
- * in the load menu loop. After commit we hand control back to
- * the outer menu loop via rc=5, which routes through
- * RunGameStageLoop(0x10) (skip intro, use restored g_cur_etap /
- * g_cur_komnata / script_vars from the loaded slot). */
-        extern SceneDef g_load_menu_scene;
-        /* Snapshot main-menu title.pic backbuffer so Load's overlay
- * margins show the title art instead of an uninitialised buffer
- * (palette index 0 in the new palette can be white/garbage). */
-        SnapshotBackbufferForMenu();
-        int r = RunMenuScene(1, &g_load_menu_scene);
-        rc = (r == 3) ? 5 : 2;     /* 3=committed → start gameplay; else
- * back to main menu */
-        break;
+    if (LoadFileFromDta(TITLE_BLEND_PALETTE_FILENAME, &pal, &psz) && pal) {
+        xfree(pal);
     }
-    case 0x13:   rc = 6;  s_menu_flags &= ~1u; break;   /* New game (film) */
-    case 0x14:   s_save_request = 1;            break;   /* Maluch — start */
-    case 0x15:   rc = 8;                        break;   /* Quit */
-    case 0x16:   rc = 9;                        break;   /* Credits */
-    }
+}
 
-    /*'s trailing block:
- * if ( && (anim_frame_index < 0xF || 0x12 < anim_frame_index)) {
- * &= ~1;
- * i.e. once the Maluch click latch (s_save_request) is set AND the
- * background flipbook is OUTSIDE the "doors closing" frames 15..18,
- * actually return 7 to the caller (= RunMainGameLoop case 7 = prologue
- * / play the game). The frame gate gives the title animation time to
- * finish its rotation pose before transitioning. */
-    if (s_save_request && (s_anim_frame < 0xF || s_anim_frame > 0x12)) {
-        rc = 7;
-        s_menu_flags &= ~1u;
-        s_anim_delay = 1;
-    }
+/* INIT-trigger handler — runs once when the title is first entered:
+ * clear the backbuffer, install both palettes, reset the flipbook
+ * counters, and start the looping menu BGM. */
+static void enter_main_menu(void)
+{
+    FlipBuffersClearWith(0);
+    FlushFrameToPrimary();
+    install_main_menu_palettes();
+    s_anim_frame   = MAIN_MENU_ANIM_FIRST_FRAME;
+    s_anim_delay   = 0;
+    s_save_request = 0;
+    PlayMenuMusic(MAIN_MENU_BGM_FILENAME, 1);
+}
 
-    if (trigger > 0)
-        fprintf(stderr, "[menu] click trigger=0x%02X rc=%d\n", trigger, rc);
+/* TITLE_BTN_LOAD handler — runs the Load-game sub-menu and translates
+ * its rc into the appropriate main-menu rc. */
+static int dispatch_load_submenu(void)
+{
+    extern SceneDef g_load_menu_scene;
+    /* Snapshot the title-screen backbuffer so the Load overlay's
+     * margins show the title art instead of an uninitialised buffer
+     * (palette index 0 in the new palette can be white/garbage). */
+    SnapshotBackbufferForMenu();
+    int r = RunMenuScene(1, &g_load_menu_scene);
+    return (r == 3) ? MAIN_MENU_RC_LOAD_SAVE : MAIN_MENU_RC_BACK_TO_MAIN;
+}
 
-    /* --- trailing block: title-animation tick ----
- * Every (s_anim_delay -> 0) ticks, advance the animation frame and
- * draw it from the mask atlas (= asset 1,10 = sel_guz.wyc). Frames
- * 10..(count-1) form the animated WACKI logo. */
+/* Returns true once the Maluch-click latch is set AND the title
+ * flipbook is OUTSIDE the "doors closing" frames — when both hold,
+ * HandleMainMenuClick returns rc=PROLOGUE so RunMainGameLoop starts
+ * a new playthrough. */
+static int maluch_latch_ready_to_fire(void)
+{
+    return s_save_request &&
+           (s_anim_frame <  MAIN_MENU_ANIM_DOORS_FIRST ||
+            s_anim_frame >  MAIN_MENU_ANIM_DOORS_LAST);
+}
+
+/* Advance the title-screen WACKI-logo flipbook by one frame (or wait
+ * for the per-frame tick countdown). Frames 10..(count-1) form the
+ * animated logo painted with colour-key 0 so the buttons underneath
+ * remain visible. */
+static void tick_title_animation(void)
+{
     AnimAsset *a = g_menu_asset_10;
     if (a && s_anim_delay < 1) {
-        if (s_anim_frame >= a->frame_count) s_anim_frame = 10;
+        if (s_anim_frame >= a->frame_count)
+            s_anim_frame = MAIN_MENU_ANIM_FIRST_FRAME;
         if (s_anim_frame < a->frame_count && a->pixel_ptrs[s_anim_frame]) {
             uint16_t w  = a->off_widths [s_anim_frame];
             uint16_t h  = a->off_heights[s_anim_frame];
@@ -493,26 +547,69 @@ static int HandleMainMenuClick(int trigger)
                         s_anim_frame, dx, dy, w, h);
                 ++once;
             }
-            /* Colour-keyed paint (mode 0) so the frame's index-0 pixels
- * stay transparent — otherwise they'd overwrite the button
- * underneath with white (= Tlo.pal[0]) and the WACKI logo
- * "halo" would punch a hole into the rest of the screen. */
             BlitSpriteToBackbuffer(dx, dy, 0, 0, w, h, w, h,
                                    a->pixel_ptrs[s_anim_frame], 0);
         }
         ++s_anim_frame;
-        /* ~10 fps for the WACKI logo flipbook: at the 60 fps menu pacing
- * (SDL_Delay(16) below) a delay of 6 ticks → one new frame every
- * ~100 ms. The original used a hard-coded reset value of 6 here
- * (anim_delay_counter ← 6 on every advance). */
-        s_anim_delay = 6;
+        /* ~10 fps at the 60 fps menu pacing — one new frame every
+         * MAIN_MENU_ANIM_TICKS_PER_FRAME (≈100 ms). */
+        s_anim_delay = MAIN_MENU_ANIM_TICKS_PER_FRAME;
     } else {
         --s_anim_delay;
     }
-    /* Original: any non-zero return from the cb stops the music handle
- * (`(&g_persp_band_count, ); = 0xffff;`).
- * Mirror that so navigating away from the title kills the music. */
-    if (rc != 0) StopMenuMusic();
+}
+
+static int HandleMainMenuClick(int trigger)
+{
+    int rc = MAIN_MENU_RC_NONE;
+    s_menu_flags |= MAIN_MENU_FLAG_LATCH;
+
+    switch (trigger) {
+    case MAIN_MENU_TRIGGER_INIT:
+        enter_main_menu();
+        break;
+
+    case TITLE_BTN_LOAD:
+        rc = dispatch_load_submenu();
+        break;
+
+    case TITLE_BTN_NEW:
+        rc = MAIN_MENU_RC_NEW_GAME;
+        s_menu_flags &= ~MAIN_MENU_FLAG_LATCH;
+        break;
+
+    case TITLE_BTN_MALUCH:
+        s_save_request = 1;
+        break;
+
+    case TITLE_BTN_QUIT:
+        rc = MAIN_MENU_RC_QUIT_CONFIRM_B;
+        break;
+
+    case TITLE_BTN_CREDITS:
+        rc = MAIN_MENU_RC_CREDITS;
+        break;
+    }
+
+    /* Maluch-latch trailing block: once s_save_request is set AND the
+     * title flipbook is outside the "doors closing" pose, return rc=
+     * PROLOGUE so RunMainGameLoop starts a new playthrough. The frame
+     * gate gives the title animation time to finish its rotation. */
+    if (maluch_latch_ready_to_fire()) {
+        rc = MAIN_MENU_RC_PROLOGUE;
+        s_menu_flags &= ~MAIN_MENU_FLAG_LATCH;
+        s_anim_delay = 1;
+    }
+
+    if (trigger > MAIN_MENU_TRIGGER_INIT) {
+        fprintf(stderr, "[menu] click trigger=0x%02X rc=%d\n", trigger, rc);
+    }
+
+    tick_title_animation();
+
+    /* Any non-zero rc means we're leaving the menu — stop the BGM so
+     * it doesn't bleed into the next scene. */
+    if (rc != MAIN_MENU_RC_NONE) StopMenuMusic();
     return rc;
 }
 
@@ -933,60 +1030,10 @@ int g_dev_start_stage = 0;
 
 /* ---- RunMainGameLoop constants ------------------------------------ */
 
-#define TITLE_PALETTE_FILENAME          "Tlo.pal"
-#define TITLE_MASK_FILENAME             "Tlo.wyc"
-#define TITLE_INTRO_AVI                 "Dane_10.dta"
-#define CREDITS_AVI                     "Dane_12.dta"
-
-/* Title-screen button triggers (Tlo.wyc mask). Frames in the .wyc are
- * laid out so that hover frame = def frame + TITLE_HOVER_FRAME_OFFSET. */
-#define TITLE_BTN_LOAD                  0x12
-#define TITLE_BTN_NEW                   0x13
-#define TITLE_BTN_OPTIONS               0x14
-#define TITLE_BTN_QUIT                  0x15
-#define TITLE_BTN_CREDITS               0x16
-#define TITLE_HOVER_FRAME_OFFSET        5
-#define TITLE_BUTTON_COUNT              5
-
-/* RunMenuScene(title) return codes from HandleMainMenuClick. */
-#define MAIN_MENU_RC_QUIT_CONFIRM_A     4
-#define MAIN_MENU_RC_QUIT_CONFIRM_B     8
-#define MAIN_MENU_RC_LOAD_SAVE          5
-#define MAIN_MENU_RC_NEW_GAME           6
-#define MAIN_MENU_RC_PROLOGUE           7
-#define MAIN_MENU_RC_CREDITS            9
-#define MAIN_MENU_RC_HARD_QUIT          99
-
-/* Pytanie (Y/N) quit-confirm. */
-#define PYTANIE_TRIGGER_TAK             0x12
-#define PYTANIE_TRIGGER_NIE             0x13
-#define PYTANIE_RC_TAK                  3
-#define PYTANIE_FRAME_NONE              0xFFFF
-
-/* RunGameStageLoop flag bits. */
-#define STAGE_LOAD_FLAG_FULL_RESET      0x02
-#define STAGE_LOAD_FLAG_SAVE_LOAD       0x10
-
-/* Entity-state table layout (flag-2 FULL RESET only zeroes the
- * in_inventory_flag field per entry, preserving panel_verb_id). */
-#define ENTITY_STATE_ENTRY_COUNT        0x8E
-#define ENTITY_STATE_FIELDS_PER_ENTRY   4
-#define ENTITY_STATE_INVENTORY_FIELD    1
-
-/* g_game_over_code progress signals + the "user-confirmed quit to main
- * menu" sentinel set by ESC / F12→TAK / OPCJE→Quit. Anything other than
- * NONE / DEATH / CHAPTER_PICK / STAGE_END_AVI is treated as a user-quit
- * intent by the dev start-stage flow. */
-#define GAME_OVER_NONE                  0
-#define GAME_OVER_DEATH                 1
-#define GAME_OVER_USER_QUIT             2
-#define GAME_OVER_CHAPTER_PICK          3
-#define GAME_OVER_STAGE_END_AVI         4
-
-/* Dev-mode --start-stage clamps + the "Monter finale" pick value. */
-#define DEV_START_STAGE_MIN             1
-#define DEV_START_STAGE_MAX             5
-#define DEV_PICK_FINALE                 5
+/* Title/main-menu constants moved to the top of the file (above
+ * HandlePytanieClick + HandleMainMenuClick) so both early click
+ * handlers and the late RunMainGameLoop builder share one source of
+ * truth. See the "Title + main-menu constants" block above. */
 
 /* Build the title-screen SceneDef (Tlo.wyc mask + HandleMainMenuClick). */
 static SceneDef make_title_scene(void)
@@ -1002,7 +1049,7 @@ static SceneDef make_title_scene(void)
               .hover_anim = TITLE_HOVER_FRAME_OFFSET + 0 },
             { .id = TITLE_BTN_NEW,     .def_anim = 1,
               .hover_anim = TITLE_HOVER_FRAME_OFFSET + 1 },
-            { .id = TITLE_BTN_OPTIONS, .def_anim = 2,
+            { .id = TITLE_BTN_MALUCH,  .def_anim = 2,
               .hover_anim = TITLE_HOVER_FRAME_OFFSET + 2 },
             { .id = TITLE_BTN_QUIT,    .def_anim = 3,
               .hover_anim = TITLE_HOVER_FRAME_OFFSET + 3 },
