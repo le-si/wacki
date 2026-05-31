@@ -22,10 +22,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#ifndef WACKI_WITH_WIN32
-#  define lstrcpynA(dst, src, n) (snprintf((dst), (n), "%s", (src)), (dst))
-#endif
-
 /* ---- constants ---------------------------------------------------- */
 
 /* DTA path buffer size + a sanity ceiling on the SPIS index size so a
@@ -144,7 +140,7 @@ static int32_t dta_find_offset(const char *key)
 int OpenDtaArchiveFile(const char *path)
 {
     s_dta_path_p = s_dta_path;
-    lstrcpynA(s_dta_path, path, sizeof s_dta_path);
+    snprintf(s_dta_path, sizeof s_dta_path, "%s", path);
     s_dir_count = 0;
 
     CygFile *f = open_dta_with_case_fallback();
