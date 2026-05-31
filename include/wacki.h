@@ -208,6 +208,19 @@ typedef struct WackiSettings {
     uint8_t voice_on,   subtitles_on, dialogues_on, pad1;
 } WackiSettings;
 
+/* DemoScene — per-room descriptor (bg .pic + .fld walkability + music
+ * wav + walkable bbox fallback). The synthesised version is built by
+ * LoadKomnataScene; per-stage tables are emitted by BuildStageTable.
+ * Promoted from a game.c-local typedef so scene/play_loop.c + other
+ * scene modules can see the layout. */
+typedef struct DemoScene {
+    const char  *name;
+    const char  *bg_pic;
+    const char  *fld_file;
+    const char  *music_wav;
+    int          walk_x0, walk_y0, walk_x1, walk_y1;
+} DemoScene;
+
 /* Slot layout exactly fills WACKI_SLOT_SIZE (0x3012) — checked via
  * static assert below. No pad[] needed; the fields above sum to the
  * required size. The pad slot existed earlier when scene_snapshot was

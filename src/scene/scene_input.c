@@ -29,7 +29,7 @@
 extern int16_t  s_mouse_x;
 extern int16_t  s_mouse_y;
 extern uint8_t  g_dialog_active;
-extern const struct DemoScene *g_current_scene;
+extern const DemoScene *g_current_scene;
 
 extern int  is_walkable_at(int sx, int sy);
 extern int  ClickHitTest(int16_t mouse_x, int16_t mouse_y, uint16_t *out_verb);

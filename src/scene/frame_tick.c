@@ -19,8 +19,8 @@
 #include <stdio.h>
 #include <string.h>
 
-extern const char *g_current_scene;
-extern const void *g_scene_bg_raw;
+extern const DemoScene *g_current_scene;
+extern const void      *g_scene_bg_raw;
 extern uint32_t    g_scene_bg_size;
 extern uint16_t    g_hover_scene_verb;
 
