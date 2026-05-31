@@ -931,216 +931,311 @@ static void play_loading_screen(void);
  * 1..(N-1) marked completed. 0 = normal flow. */
 int g_dev_start_stage = 0;
 
+/* ---- RunMainGameLoop constants ------------------------------------ */
+
+#define TITLE_PALETTE_FILENAME          "Tlo.pal"
+#define TITLE_MASK_FILENAME             "Tlo.wyc"
+#define TITLE_INTRO_AVI                 "Dane_10.dta"
+#define CREDITS_AVI                     "Dane_12.dta"
+
+/* Title-screen button triggers (Tlo.wyc mask). Frames in the .wyc are
+ * laid out so that hover frame = def frame + TITLE_HOVER_FRAME_OFFSET. */
+#define TITLE_BTN_LOAD                  0x12
+#define TITLE_BTN_NEW                   0x13
+#define TITLE_BTN_OPTIONS               0x14
+#define TITLE_BTN_QUIT                  0x15
+#define TITLE_BTN_CREDITS               0x16
+#define TITLE_HOVER_FRAME_OFFSET        5
+#define TITLE_BUTTON_COUNT              5
+
+/* RunMenuScene(title) return codes from HandleMainMenuClick. */
+#define MAIN_MENU_RC_QUIT_CONFIRM_A     4
+#define MAIN_MENU_RC_QUIT_CONFIRM_B     8
+#define MAIN_MENU_RC_LOAD_SAVE          5
+#define MAIN_MENU_RC_NEW_GAME           6
+#define MAIN_MENU_RC_PROLOGUE           7
+#define MAIN_MENU_RC_CREDITS            9
+#define MAIN_MENU_RC_HARD_QUIT          99
+
+/* Pytanie (Y/N) quit-confirm. */
+#define PYTANIE_TRIGGER_TAK             0x12
+#define PYTANIE_TRIGGER_NIE             0x13
+#define PYTANIE_RC_TAK                  3
+#define PYTANIE_FRAME_NONE              0xFFFF
+
+/* RunGameStageLoop flag bits. */
+#define STAGE_LOAD_FLAG_FULL_RESET      0x02
+#define STAGE_LOAD_FLAG_SAVE_LOAD       0x10
+
+/* Entity-state table layout (flag-2 FULL RESET only zeroes the
+ * in_inventory_flag field per entry, preserving panel_verb_id). */
+#define ENTITY_STATE_ENTRY_COUNT        0x8E
+#define ENTITY_STATE_FIELDS_PER_ENTRY   4
+#define ENTITY_STATE_INVENTORY_FIELD    1
+
+/* g_game_over_code progress signals (anything else = user quit). */
+#define GAME_OVER_NONE                  0
+#define GAME_OVER_DEATH                 1
+#define GAME_OVER_CHAPTER_PICK          3
+#define GAME_OVER_STAGE_END_AVI         4
+
+/* Dev-mode --start-stage clamps + the "Monter finale" pick value. */
+#define DEV_START_STAGE_MIN             1
+#define DEV_START_STAGE_MAX             5
+#define DEV_PICK_FINALE                 5
+
+/* Build the title-screen SceneDef (Tlo.wyc mask + HandleMainMenuClick). */
+static SceneDef make_title_scene(void)
+{
+    SceneDef s = {
+        .background_pic = NULL,
+        .mask_file      = TITLE_MASK_FILENAME,
+        .on_click       = HandleMainMenuClick,
+        .button_count   = TITLE_BUTTON_COUNT,
+        .flags          = SCENE_FLAG_FORCE_CB,
+        .buttons = {
+            { .id = TITLE_BTN_LOAD,    .def_anim = 0,
+              .hover_anim = TITLE_HOVER_FRAME_OFFSET + 0 },
+            { .id = TITLE_BTN_NEW,     .def_anim = 1,
+              .hover_anim = TITLE_HOVER_FRAME_OFFSET + 1 },
+            { .id = TITLE_BTN_OPTIONS, .def_anim = 2,
+              .hover_anim = TITLE_HOVER_FRAME_OFFSET + 2 },
+            { .id = TITLE_BTN_QUIT,    .def_anim = 3,
+              .hover_anim = TITLE_HOVER_FRAME_OFFSET + 3 },
+            { .id = TITLE_BTN_CREDITS, .def_anim = 4,
+              .hover_anim = TITLE_HOVER_FRAME_OFFSET + 4 },
+        },
+    };
+    return s;
+}
+
+/* Build the Pytanie Y/N quit-confirm SceneDef. */
+static SceneDef make_pytanie_scene(void)
+{
+    SceneDef s = {
+        .background_pic = "Pytanie.pic",
+        .mask_file      = "Pytanie.wyc",
+        .on_click       = HandlePytanieClick,
+        .button_count   = 2,
+        .flags          = SCENE_FLAG_MOUSE_ONLY,
+        .buttons = {
+            { .id = PYTANIE_TRIGGER_TAK,
+              .def_anim = PYTANIE_FRAME_NONE, .hover_anim = 0 },
+            { .id = PYTANIE_TRIGGER_NIE,
+              .def_anim = PYTANIE_FRAME_NONE, .hover_anim = 1 },
+        },
+    };
+    return s;
+}
+
+/* Install the Tlo.pal background palette. Done here because we haven't
+ * ported the original InitializeStage that does it on engine boot. */
+static void install_title_palette(void)
+{
+    void    *pal = NULL;
+    uint32_t psz = 0;
+    if (LoadFileFromDta(TITLE_PALETTE_FILENAME, &pal, &psz) && pal) {
+        InstallPalette((uint8_t *)pal, 0);
+        xfree(pal);
+    }
+}
+
+/* Mirror RunGameStageLoop's flag-2 FULL RESET cleanup: zero script vars,
+ * clear each entity_state[i].in_inventory_flag (preserving the
+ * panel_verb_id identity mapping), reset the inventory state. */
+static void apply_full_reset(void)
+{
+    memset(g_script_vars, 0, sizeof g_script_vars);
+    uint16_t *es = (uint16_t *)g_entity_state;
+    for (int idx = 0; idx < ENTITY_STATE_ENTRY_COUNT; ++idx) {
+        es[idx * ENTITY_STATE_FIELDS_PER_ENTRY +
+           ENTITY_STATE_INVENTORY_FIELD] = 0;
+    }
+    ResetInventory();
+}
+
+/* Mask of "stage prior to N is completed" bits used to seed the
+ * dev-mode chapter-select map. (1<<(N-1)) - 1 = bits 0..N-2. */
+static uint32_t dev_completed_mask_for_stage(int n)
+{
+    return (uint32_t)((1u << (n - 1)) - 1u);
+}
+
+/* g_game_over_code values 0/1/3/4 mean "stage progressed normally" —
+ * anything else (2 = ESC/F12 quit, 99 = hard-quit, unknown codes)
+ * means the user is done with the dev session. */
+static int game_over_is_progress_signal(int code)
+{
+    return code == GAME_OVER_NONE
+        || code == GAME_OVER_DEATH
+        || code == GAME_OVER_CHAPTER_PICK
+        || code == GAME_OVER_STAGE_END_AVI;
+}
+
+/* Forward-declared because g_sel_tlo_scene + helpers live further down
+ * the file (in the sel_tlo.pic chapter-select section). */
+extern SceneDef g_sel_tlo_scene;
+extern int      s_chapter_pick;
+extern int      SelTloRefreshButtons(void);
+
+/* DEV --start-stage N: skip menu+intro, show chapter-select map with
+ * stages 1..(N-1) marked completed. User picks stage from the map,
+ * then that stage runs normally. Loop so that returning from one
+ * stage re-shows the map (e.g. ESC out of stage 2 → back to map).
+ * Returns 1 if the dev flow handled the run (RunMainGameLoop should
+ * return), 0 if dev mode is off and the normal flow should proceed. */
+static int run_dev_start_stage_flow(void)
+{
+    if (g_dev_start_stage < DEV_START_STAGE_MIN ||
+        g_dev_start_stage > DEV_START_STAGE_MAX) return 0;
+
+    int N = g_dev_start_stage;
+    apply_full_reset();
+    g_completed_stages = dev_completed_mask_for_stage(N);
+    fprintf(stderr, "[wacki] dev-start: chapter-select map, "
+                    "completed_mask=0x%X (stages 1..%d done)\n",
+            g_completed_stages, N - 1);
+
+    while (!PlatformShouldQuit()) {
+        (void)SelTloRefreshButtons();
+        s_chapter_pick = 0;
+        RunMenuScene(0, &g_sel_tlo_scene);
+        if (PlatformShouldQuit()) return 1;
+
+        if (s_chapter_pick < 1 || s_chapter_pick > DEV_PICK_FINALE) {
+            fprintf(stderr, "[wacki] dev-start: no stage picked — exit\n");
+            return 1;
+        }
+        fprintf(stderr, "[wacki] dev-start: stage %d picked from map\n",
+                s_chapter_pick);
+        if (!LoadStage((uint16_t)s_chapter_pick)) {
+            fprintf(stderr, "[wacki] dev-start: LoadStage(%d) failed\n",
+                    s_chapter_pick);
+            continue;
+        }
+
+        int played_stage = s_chapter_pick;
+        RunGameStageLoop(STAGE_LOAD_FLAG_SAVE_LOAD);
+
+        /* Stage 5 (Monter finale) is terminal — the original returns
+         * to the main-menu loop after the credits sting. In dev mode
+         * the title was skipped on startup, so the equivalent
+         * terminal action is to return from the dev loop entirely. */
+        if (played_stage == DEV_PICK_FINALE) {
+            fprintf(stderr, "[wacki] dev-start: Monter finale complete "
+                            "→ exit (= main menu in normal flow)\n");
+            return 1;
+        }
+
+        /* Loop back to the map only on stage-progress signals; on an
+         * explicit user quit (game_over_code 2, 99, or any unknown
+         * value) bail back to the OS instead of bouncing to sel_tlo. */
+        if (!game_over_is_progress_signal(g_game_over_code)) {
+            fprintf(stderr, "[wacki] dev-start: game_over=%d → exit\n",
+                    g_game_over_code);
+            return 1;
+        }
+
+        /* Re-mark all stages prior to N as completed so the map shows
+         * progress even if the played stage cleared a bit via script. */
+        g_completed_stages |= dev_completed_mask_for_stage(N);
+    }
+    return 1;
+}
+
+/* Pytanie Y/N quit-confirm cascade — runs the menu, bombs + returns 1
+ * on TAK, returns 0 on NIE. Caller breaks out of the menu re-entry
+ * loop on TAK. */
+static int prompt_quit_with_bomb(void)
+{
+    SceneDef q = make_pytanie_scene();
+    int rc = RunMenuScene(1, &q);
+    if (rc == PYTANIE_RC_TAK) {
+        play_bomb_explosion();
+        return 1;
+    }
+    return 0;
+}
+
+/* Dispatch one return code from RunMenuScene(title). Returns 1 if the
+ * outer / inner loop should keep running, 0 if the caller should
+ * break out of the inner loop (back to outer's intro replay). */
+static int dispatch_main_menu_rc(int rc, int *should_return)
+{
+    *should_return = 0;
+    switch (rc) {
+    case MAIN_MENU_RC_QUIT_CONFIRM_A:
+    case MAIN_MENU_RC_QUIT_CONFIRM_B:
+        if (prompt_quit_with_bomb()) {
+            *should_return = 1;
+            return 0;
+        }
+        return 1;
+
+    case MAIN_MENU_RC_LOAD_SAVE: {
+        /* LoadSaveSlot restores g_cur_komnata + g_script_vars +
+         * g_entity_state from Wacki.sav slot N. */
+        extern uint16_t g_selected_save_slot;
+        LoadSaveSlot(g_selected_save_slot);
+        RunGameStageLoop(STAGE_LOAD_FLAG_SAVE_LOAD);
+        return 1;
+    }
+
+    case MAIN_MENU_RC_NEW_GAME:
+        /* Film-reel button — the original runs an intro script which
+         * plays the credits/film cutscene. The VM isn't wired to
+         * assets here, so break the inner loop and let the outer
+         * replay the title intro AVI (Dane_10.dta). */
+        return 0;
+
+    case MAIN_MENU_RC_PROLOGUE:
+        /* [etap]1 [komnata]init prologue:
+         *   1. fiacik.wyc Maluch driving across the title
+         *   2. load.pic / load.wyc "Lołding" progress bar
+         *   3. hand off to RunGameStageLoop(FULL_RESET). */
+        play_fiacik_intro();
+        play_loading_screen();
+        RunGameStageLoop(STAGE_LOAD_FLAG_FULL_RESET);
+        return 0;
+
+    case MAIN_MENU_RC_CREDITS:
+        PlaySceneCutsceneAvi(CREDITS_AVI);
+        return 1;
+    }
+    return 1;
+}
+
 void RunMainGameLoop(void)
 {
     LoadSaveStateOrInitialize();
 
-    /* T34 — push Wacki.sav settings into in-memory s_opt_* + audio mixer
- * (music/sfx/sound enable flags). Without this the saved prefs were
- * loaded into g_save.settings but never had any effect — opszyns
- * always opened with all-on regardless of what the user toggled
- * last session. */
+    /* Push Wacki.sav settings into in-memory s_opt_* + audio mixer.
+     * Without this the saved prefs were loaded into g_save.settings
+     * but never had any effect — opszyns always opened with all-on
+     * regardless of what the user toggled last session. */
     ApplySavedSettings();
+    install_title_palette();
 
-    /* Tlo.pal — installed here because we haven't ported the original
- * InitializeStage that does it on engine boot. */
-    {
-        void *pal = NULL; uint32_t psz = 0;
-        if (LoadFileFromDta("Tlo.pal", &pal, &psz) && pal) {
-            InstallPalette((uint8_t *)pal, 0);
-            xfree(pal);
-        }
-    }
+    if (run_dev_start_stage_flow()) return;
 
-    /* flags=4 (FORCE_CB only).
- * Buttons {id, def_anim, hover_anim}: 0x12 Load, 0x13 New, 0x14 Options,
- * 0x15 Quit, 0x16 Credits. */
-    SceneDef title = {
-        .background_pic = NULL,
-        .mask_file      = "Tlo.wyc",
-        .on_click       = HandleMainMenuClick,
-        .button_count   = 5,
-        .flags          = SCENE_FLAG_FORCE_CB,
-        .buttons = {
-            { .id = 0x12, .def_anim = 0, .hover_anim = 5 },
-            { .id = 0x13, .def_anim = 1, .hover_anim = 6 },
-            { .id = 0x14, .def_anim = 2, .hover_anim = 7 },
-            { .id = 0x15, .def_anim = 3, .hover_anim = 8 },
-            { .id = 0x16, .def_anim = 4, .hover_anim = 9 },
-        },
-    };
+    SceneDef title = make_title_scene();
 
-    /* DEV --start-stage N: skip menu+intro, show chapter-select MAP
- * (sel_tlo.pic) with stages 1..N marked as completed. User picks
- * stage from the map, then that stage runs normally. Lets us test
- * any stage without playing through earlier ones to trigger the
- * map. Loop so that returning from one stage re-shows the map
- * (e.g. ESC out of stage 2 → back to map). */
-    if (g_dev_start_stage >= 1 && g_dev_start_stage <= 5) {
-        int N = g_dev_start_stage;
-        /* Mirror RunGameStageLoop's flag-2 FULL RESET cleanup. */
-        memset(g_script_vars, 0, sizeof g_script_vars);
-        {
-            uint16_t *es = (uint16_t *)g_entity_state;
-            for (int idx = 0; idx < 0x8E; ++idx)
-                es[idx * 4 + 1] = 0;       /* in_inventory_flag */
-        }
-        ResetInventory();
-        /* Mark stages 1..(N-1) as completed. Intent declared in main.c:
- * "--start-stage N jumps straight into stage N gameplay." For N=4
- * that's stages 1,2,3 done + stage 4 available on the map; for
- * N=5 all 4 stages done → map shows assembled ACME + green
- * "finale" button (id=0x16) enabled. Previous mask (1<<N)-1 had
- * stage N itself marked done, making it unclickable. */
-        g_completed_stages = (uint32_t)((1u << (N - 1)) - 1u);
-        fprintf(stderr, "[wacki] dev-start: chapter-select map, completed_mask=0x%X (stages 1..%d done)\n",
-                g_completed_stages, N - 1);
-
-        while (!PlatformShouldQuit()) {
-            extern SceneDef g_sel_tlo_scene;
-            extern int  SelTloRefreshButtons(void);
-            extern int  s_chapter_pick;
-            (void)SelTloRefreshButtons();
-            s_chapter_pick = 0;
-            RunMenuScene(0, &g_sel_tlo_scene);
-            if (PlatformShouldQuit()) return;
-            /* Pick: 1..4 = stage button (id 0x12..0x15), 5 = ACME-complete
- * green button (id 0x16, "Monter" finale = Dane_12/11/13). */
-            if (s_chapter_pick < 1 || s_chapter_pick > 5) {
-                fprintf(stderr, "[wacki] dev-start: no stage picked — exit\n");
-                return;
-            }
-            fprintf(stderr, "[wacki] dev-start: stage %d picked from map\n",
-                    s_chapter_pick);
-            if (!LoadStage((uint16_t)s_chapter_pick)) {
-                fprintf(stderr, "[wacki] dev-start: LoadStage(%d) failed\n",
-                        s_chapter_pick);
-                continue;
-            }
-            int played_stage = s_chapter_pick;
-            RunGameStageLoop(0x10);   /* flag 0x10 = SAVE-LOAD: skip intro,
- * use pre-loaded stage state */
-            /* Stage 5 (Monter finale) is terminal — after Dane_11.dta
- * + Dane_13.dta credits sting plays in case 4 (alt_avi +
- * alt3_avi), the original RunGameStageLoop returns to
- * RunMainGameLoop's inner loop which immediately re-enters
- * RunMenuScene(title) (= main menu). In dev mode the title
- * loop was skipped on startup, so the equivalent terminal
- * action is to return from the dev loop entirely — back to
- * WinMain / OS. Without this guard the dev loop bounces
- * back to RunMenuScene(sel_tlo) and shows the assembled-
- * ACME map again instead of the menu the user expects. */
-            if (played_stage == 5) {
-                fprintf(stderr, "[wacki] dev-start: Monter finale complete → exit (= main menu in normal flow)\n");
-                return;
-            }
-            /* Loop back to the map ONLY for stage-progress signals:
- * Everything else — explicit quit (2 from F12+TAK / ESC /
- * opszyns→Quit), hard-quit (99), or any other unknown code
- * — means "user wants out of the dev session". Return to the
- * OS instead of bouncing back to sel_tlo. In normal flow
- * (non-dev), RunMainGameLoop's `> 4` check passes 2 through
- * to the title-screen loop; here in dev mode the title was
- * skipped so we treat 2 as terminal. */
-            if (g_game_over_code != 0 &&
-                g_game_over_code != 1 &&
-                g_game_over_code != 3 &&
-                g_game_over_code != 4) {
-                fprintf(stderr, "[wacki] dev-start: game_over=%d → exit\n",
-                        g_game_over_code);
-                return;
-            }
-            /* Re-mark all stages prior to N as completed so map shows
- * progress (the played stage may set its own bit via script). */
-            g_completed_stages |= (uint32_t)((1u << (N - 1)) - 1u);
-        }
-        return;
-    }
-
-    /* OUTER loop: each iteration plays the intro AVI then runs the
- * menu-re-entry inner loop. */
-    int outer = 1;
-    while (outer) {
+    /* OUTER: each iteration plays the title intro then drives the menu
+     * re-entry inner loop. INNER: each iteration shows the title menu
+     * and dispatches one click. */
+    while (1) {
         if (PlatformShouldQuit()) return;
-        PlaySceneCutsceneAvi("Dane_10.dta");
+        PlaySceneCutsceneAvi(TITLE_INTRO_AVI);
 
         int inner = 1;
         while (inner) {
             int rc = RunMenuScene(1, &title);
-            if (PlatformShouldQuit() || rc == 99) return;
+            if (PlatformShouldQuit() || rc == MAIN_MENU_RC_HARD_QUIT) return;
 
-            switch (rc) {
-            case 4: case 8: {           /* Pytanie? quit-confirm */
-                SceneDef q = {
-                    .background_pic = "Pytanie.pic",
-                    .mask_file      = "Pytanie.wyc",
-                    .on_click       = HandlePytanieClick,
-                    .button_count   = 2,
-                    .flags          = SCENE_FLAG_MOUSE_ONLY,
-                    .buttons = {
-                        { .id = 0x12, .def_anim = 0xFFFF, .hover_anim = 0 },
-                        { .id = 0x13, .def_anim = 0xFFFF, .hover_anim = 1 },
-                    },
-                };
-                int rc2 = RunMenuScene(1, &q);
-                if (rc2 == 3) {         /* TAK → bomb + exit */
-                    play_bomb_explosion();
-                    return;
-                }
-                /* NIE (rc2 == 4) → fall through: inner loop continues,
- * which re-enters RunMenuScene(title) — same as original
- * after Pytanie returns without bVar1=false. */
-                break;
-            }
-            case 5: {                   /* Start at selected save slot */
-                /* @ 0x0040BC4A:
- *
- * LoadSaveSlot restores g_cur_komnata (g_cur_komnata) +
- * g_script_vars (script_vars) + g_entity_state (entity_state)
- * from Wacki.sav slot N. */
-                extern uint16_t g_selected_save_slot;
-                LoadSaveSlot(g_selected_save_slot);
-                RunGameStageLoop(0x10);
-                break;
-            }
-            case 6:                     /* "New game" (film-reel button) */
-                /* Original: FindScriptByStageAndRoom + RunScriptInterpreter
- * (0, 0, &); bVar1=false;
- * The intro script plays the credits/film cutscene. We
- * don't have the VM wired to assets yet — fall back to
- * the simplest faithful behaviour: break the inner loop
- * so outer re-plays the title intro AVI (Dane_10.dta),
- * which is what the user observed as "film reel works
- * and plays the intro". */
-                inner = 0;
-                break;
-            case 7: {                   /* Prologue — Maluch "start game" */
-                /* Original: RunScriptInterpreter(0, 0, &)
- * then RunGameStageLoop(2).
- *
- * Per Wacky.scr [etap]1 [komnata]init the prologue runs
- * these three steps:
- * 1. [animacja] fiacik.wyc / [sampl] fiacik.wav (0,20)
- * → in-place menu animation of the Maluch driving
- * left across the title (structurally identical
- * to the bomb explosion).
- * 2. Show load.pic + load.wyc progress bar ("Lołding").
- * 3. Hand off to RunGameStageLoop(2) — gameplay loop
- * proper. Until the script VM is wired to the
- * entity walker, the loop body still delegates to
- * play_first_scene_demo (port shortcut tracked
- * under C4/B1). */
-                play_fiacik_intro();
-                play_loading_screen();
-                RunGameStageLoop(2);          /* flag 2 = full reset, new game */
-                inner = 0;                    /* back to title on return */
-                break;
-            }
-            case 9:                     /* "Alt-menu" — Credits set */
-                PlaySceneCutsceneAvi("Dane_12.dta");
-                break;
-            }
-            if (g_game_over_code > 4) return;
+            int should_return = 0;
+            inner = dispatch_main_menu_rc(rc, &should_return);
+            if (should_return) return;
+            if (g_game_over_code > GAME_OVER_STAGE_END_AVI) return;
         }
     }
 }
