@@ -658,97 +658,137 @@ void BlitAlphaScaledToBackbuffer(int16_t dx, int16_t dy,
                            dw, dh, s_alpha_scratch, 0);
 }
 
+/* ---- BlitAlphaScaled constants ------------------------------------ */
+
+/* Maximum destination dimension supported by the alpha-scaled blitter.
+ * Matches the original engine's hard guard; LUT_LEN is +1 so the
+ * static tables can be indexed from 0..MAX inclusive. */
+#define ALPHA_SCALED_MAX_DIM        0x400
+#define ALPHA_SCALED_LUT_LEN        (ALPHA_SCALED_MAX_DIM + 1)
+
+/* BlitAlphaScaled mode codes:
+ *   NEAREST = original nearest-neighbor with x-step LUT
+ *   BOX_1D  = 1D horizontal box filter + RGB12 quantization
+ *   BOX_2D  = 2D box filter + RGB12 quantization */
+#define BLIT_MODE_NEAREST           0
+#define BLIT_MODE_BOX_1D            1
+#define BLIT_MODE_BOX_2D            2
+
+/* Build a Bresenham-style x-step LUT: each dst column draws step[dx]
+ * src pixels (either floor(src_w/dst_w) or that+1). Modes 1/2 read it
+ * as a per-column box-filter width. */
+static void build_x_step_lut(uint32_t *x_step, uint16_t src_w, uint16_t dst_w)
+{
+    uint32_t base = src_w / dst_w;
+    uint32_t rem  = src_w % dst_w;
+    uint32_t acc  = rem;
+    uint32_t cur  = base;
+    for (uint32_t i = 0; i < dst_w; ++i) {
+        x_step[i] = cur;
+        acc += rem;
+        cur = base;
+        if ((int32_t)acc >= (int32_t)dst_w) {
+            acc -= dst_w;
+            cur += 1;
+        }
+    }
+}
+
+/* Build a y-extra-row flag table: y_extra[dy] = 1 when the source row
+ * pointer should advance an extra src_w for this dst row (Bresenham
+ * remainder distribution). */
+static void build_y_extra_table(uint8_t *y_extra,
+                                uint16_t src_h, uint16_t dst_h)
+{
+    uint32_t rem = src_h % dst_h;
+    uint32_t acc = rem;
+    for (uint32_t i = 0; i < dst_h; ++i) {
+        int extra = ((int32_t)acc >= (int32_t)dst_h);
+        y_extra[i] = (uint8_t)extra;
+        if (extra) acc -= dst_h;
+        acc += rem;
+    }
+}
+
+/* Mode-0 row: copy one src pixel per dst column, stepping src by the
+ * per-column x-step value. */
+static void blit_nearest_row(uint8_t *dst, const uint8_t *src,
+                             const uint32_t *x_step, uint32_t dst_w)
+{
+    const uint32_t *step = x_step;
+    for (uint32_t dx = 0; dx < dst_w; ++dx) {
+        dst[dx] = *src;
+        src += *step++;
+    }
+}
+
+/* Mode-1 row: each dst pixel = 1D horizontal box-filter of step[dx]
+ * src pixels via sample_box_1d. */
+static void blit_box_1d_row(uint8_t *dst, const uint8_t *src,
+                            const uint32_t *x_step, uint32_t dst_w)
+{
+    const uint32_t *step = x_step;
+    for (uint32_t dx = 0; dx < dst_w; ++dx) {
+        int sw = (int)*step;
+        if (sw < 1) sw = 1;
+        dst[dx] = sample_box_1d(src, sw);
+        src += *step++;
+    }
+}
+
+/* Mode-2 row: each dst pixel = 2D box-filter over step[dx] × sh src
+ * pixels via sample_box_2d (`sh` already clamped by the caller). */
+static void blit_box_2d_row(uint8_t *dst, const uint8_t *src,
+                            const uint32_t *x_step, uint32_t dst_w,
+                            int sh, uint16_t src_stride)
+{
+    const uint32_t *step = x_step;
+    for (uint32_t dx = 0; dx < dst_w; ++dx) {
+        int sw = (int)*step;
+        if (sw == 0) sw = 1;
+        dst[dx] = sample_box_2d(src, sw, (int)src_stride, sh);
+        src += *step++;
+    }
+}
+
 void BlitAlphaScaled(uint16_t src_w, uint16_t src_h, const uint8_t *src,
                      uint16_t dst_w, uint16_t dst_h, uint8_t *dst,
                      uint16_t mode)
 {
     if (!src || !dst) return;
     if (!src_w || !src_h || !dst_w || !dst_h) return;
-    if (dst_w > 0x400 || dst_h > 0x400) return;
+    if (dst_w > ALPHA_SCALED_MAX_DIM || dst_h > ALPHA_SCALED_MAX_DIM) return;
 
-    /* Build x-step LUT: each dst column gets src_w/dst_w
- * with Bresenham-style accumulator for the remainder. */
-    static uint32_t x_step[0x401];
-    {
-        uint32_t base = src_w / dst_w;
-        uint32_t rem  = src_w % dst_w;
-        uint32_t acc  = rem;
-        uint32_t cur  = base;
-        for (uint32_t i = 0; i < dst_w; ++i) {
-            x_step[i] = cur;
-            acc += rem;
-            cur = base;
-            if ((int32_t)acc >= (int32_t)dst_w) {
-                acc -= dst_w;
-                cur += 1;
-            }
-        }
-    }
-    /* Build y-extra-row flag table: each dst row decides
- * whether to advance an extra src row. */
-    static uint8_t y_extra[0x401];
-    {
-        uint32_t rem = src_h % dst_h;
-        uint32_t acc = rem;
-        for (uint32_t i = 0; i < dst_h; ++i) {
-            int extra = ((int32_t)acc >= (int32_t)dst_h);
-            y_extra[i] = (uint8_t)extra;
-            if (extra) acc -= dst_h;
-            acc += rem;
-        }
-    }
-    const uint8_t *srcrow = src;
-    uint8_t       *dstrow = dst;
+    static uint32_t x_step [ALPHA_SCALED_LUT_LEN];
+    static uint8_t  y_extra[ALPHA_SCALED_LUT_LEN];
+    build_x_step_lut    (x_step,  src_w, dst_w);
+    build_y_extra_table (y_extra, src_h, dst_h);
+
+    const uint8_t *srcrow       = src;
+    uint8_t       *dstrow       = dst;
     int            src_step_row = (src_h / dst_h) * src_w;
+    uint32_t       y_base       = src_h / dst_h;
 
-    if (mode == 0) {
-        /* Nearest-neighbor with x-step. */
-        for (uint32_t dy = 0; dy < dst_h; ++dy) {
-            const uint32_t *step = x_step;
-            const uint8_t  *sp   = srcrow;
-            for (uint32_t dx = 0; dx < dst_w; ++dx) {
-                dstrow[dx] = *sp;
-                sp += *step++;
-            }
-            srcrow += src_step_row;
-            if (y_extra[dy]) srcrow += src_w;
-            dstrow += dst_w;
-        }
-    } else if (mode == 1) {
-        /* 1D horizontal box filter. */
-        for (uint32_t dy = 0; dy < dst_h; ++dy) {
-            const uint32_t *step = x_step;
-            const uint8_t  *sp   = srcrow;
-            for (uint32_t dx = 0; dx < dst_w; ++dx) {
-                int sw = (int)*step;
-                if (sw < 1) sw = 1;
-                dstrow[dx] = sample_box_1d(sp, sw);
-                sp += *step++;
-            }
-            srcrow += src_step_row;
-            if (y_extra[dy]) srcrow += src_w;
-            dstrow += dst_w;
-        }
-    } else if (mode == 2) {
-        /* 2D box filter — span = step_x × step_y. */
-        uint32_t y_base = src_h / dst_h;
-        uint32_t y_acc  = src_h % dst_h;
-        for (uint32_t dy = 0; dy < dst_h; ++dy) {
+    for (uint32_t dy = 0; dy < dst_h; ++dy) {
+        switch (mode) {
+        case BLIT_MODE_NEAREST:
+            blit_nearest_row(dstrow, srcrow, x_step, dst_w);
+            break;
+        case BLIT_MODE_BOX_1D:
+            blit_box_1d_row (dstrow, srcrow, x_step, dst_w);
+            break;
+        case BLIT_MODE_BOX_2D: {
             uint32_t sh = y_base + (y_extra[dy] ? 1 : 0);
             if (sh == 0) sh = 1;
             if (dy + sh > dst_h) sh = (uint32_t)(dst_h - dy);
-            const uint32_t *step = x_step;
-            const uint8_t  *sp   = srcrow;
-            for (uint32_t dx = 0; dx < dst_w; ++dx) {
-                int sw = (int)*step;
-                if (sw == 0) sw = 1;
-                dstrow[dx] = sample_box_2d(sp, sw, src_w, (int)sh);
-                sp += *step++;
-            }
-            srcrow += src_step_row;
-            if (y_extra[dy]) srcrow += src_w;
-            dstrow += dst_w;
-            (void)y_acc;
+            blit_box_2d_row(dstrow, srcrow, x_step, dst_w, (int)sh, src_w);
+            break;
         }
+        default:
+            return;
+        }
+        srcrow += src_step_row;
+        if (y_extra[dy]) srcrow += src_w;
+        dstrow += dst_w;
     }
 }
