@@ -169,6 +169,7 @@ extern void UpdateCursorState(void);
 extern int  PreloadCommonAssets(void);
 extern int  is_walkable_at(int sx, int sy);
 extern int  ClickHitTest(int16_t mouse_x, int16_t mouse_y, uint16_t *out_verb);
+extern int  g_no_pacing;                /* main.c — --no-pacing flag */
 extern const void *PeLoaderRead(uint32_t va);
 
 /* Cursor state + paint (UpdateCursorState, PaintCursor) moved to src/hud/cursor.c. */
@@ -2957,323 +2958,302 @@ extern void    EntityRenderAll (Entity *head);
 /* T39 (shipped): play_first_scene_demo removed. Its body was inlined
  * into RunGameStageLoop, the only caller after T22 phase B. */
 
-/* Heavy lifting for one scene. */
-static const char *play_demo_scene(const DemoScene *scene)
+/* ---- play_demo_scene constants + helpers -------------------------- */
+
+#define ROOM_PALETTE_FILENAME       "paleta.pal"
+#define DEFAULT_PANEL_FILENAME      "panel.wyc"
+
+/* g_settings_anim_active bit 0 = "panel visible this komnata". The
+ * original reads it from the komnata-table entry; we raise it directly
+ * because play_demo_scene is a port shortcut over the original entry. */
+#define KOMNATA_FLAG_PANEL_VISIBLE  0x01u
+
+/* Initial actor spawn frame (idle pose) + scene-default positions. */
+#define ACTOR_INIT_FRAME            11
+#define ACTOR_EBEK_INIT_X           380
+#define ACTOR_EBEK_INIT_Y           375
+#define ACTOR_FJEJ_INIT_X           300
+#define ACTOR_FJEJ_INIT_Y           380
+
+/* Entry-script bytecode lives at fixed PE VA — loads the floor cursor
+ * atlases (ids 0x64/0x65) then tail-calls the actor position chain. */
+#define ACTOR_ENTRY_SCRIPT_VA       0x004251C8u
+
+/* Perspective scale clamps for the +0x58 scale_pct write. Anchored at
+ * Y=PERSPECTIVE_BASELINE_Y (= floor line); above that, actors shrink
+ * by g_perspective_min/g_perspective_step. */
+#define PERSPECTIVE_BASELINE_Y      400
+#define PERSPECTIVE_SCALE_MIN_PCT   30
+#define PERSPECTIVE_SCALE_MAX_PCT   160
+
+/* g_game_over_code value the engine treats as "user-confirmed quit to
+ * main menu" — set by ESC, F12 → TAK, and the OPCJE→Quit cascade. */
+#define GAME_OVER_USER_QUIT         2
+
+/* F12 Pytanie return codes (from PytanieClick). */
+#define PYTANIE_RC_TAK_QUIT         3
+
+/* QuickSave / QuickLoad live in slot 0 with the literal name "Quick"
+ * so the user can tell quicksaves apart from named saves in the Load
+ * menu list. */
+#define QUICK_SAVE_SLOT             0
+#define QUICK_SAVE_DISPLAY_NAME     "Quick"
+
+/* Frame pacing target — 33 ms ≈ 30 fps. Bypassed by --no-pacing for CI. */
+#define TARGET_FRAME_DELAY_MS       33
+
+/* Stage palette load — every paletted blit reads from the installed
+ * 256×3 palette, so this must happen before any BG/sprite paint. */
+static void install_room_palette(void)
 {
-    /* Stage palette first so all paletted blits look right. */
-    void *pal = NULL; uint32_t psz = 0;
-    if (LoadFileFromDta("paleta.pal", &pal, &psz) && pal) {
+    void    *pal = NULL;
+    uint32_t psz = 0;
+    if (LoadFileFromDta(ROOM_PALETTE_FILENAME, &pal, &psz) && pal) {
         InstallPalette((uint8_t *)pal, 0);
         xfree(pal);
     }
+}
 
-    /* T22 phase B — bg/fld/music load delegated to LoadKomnataScene.
- * Called once here for the initial komnata; subsequent transitions
- * happen via op 0x20 → ScriptGoToKomnata → LoadKomnataScene without
- * unwinding this function. The play_first_scene_demo outer komnata
- * loop is now single-iteration; play_demo_scene runs until ESC/F12. */
-    extern uint16_t g_cur_komnata;
-    LoadKomnataScene(g_cur_komnata);
-
-    /* Publish the panel to the global PanelHitTest reads.
- * Loaded once — same panel.wyc shared across all stage-1 komnaty.
- * (Stage 2-5 panel reload happens in LoadStage per T27.)
- *
- * Stage 5 (Monter finale): g_stage->panel_wyc == NULL → no HUD.
- * LoadStage already free'd + NULLed g_panel_asset; do NOT load a
- * default panel.wyc here, otherwise PaintHudOverlay paints the
- * panel during the ACME ending. */
+/* Load the HUD panel asset (singleton, shared across stage-1 komnaty).
+ * Stage 5 (Monter finale) sets g_stage->panel_wyc = NULL → no HUD;
+ * LoadStage already free'd + NULLed g_panel_asset, so we must not
+ * load a default panel here or the ACME ending would have a HUD. */
+static void prepare_panel_asset(void)
+{
     int stage_has_panel = (g_stage && g_stage->panel_wyc) || !g_stage;
     if (stage_has_panel && !g_panel_asset) {
-        g_panel_asset = LoadAssetFromDtaBase("panel.wyc");
+        g_panel_asset = LoadAssetFromDtaBase(DEFAULT_PANEL_FILENAME);
     }
-    AnimAsset *panel = g_panel_asset;
-    /* Mark panel visible — komnata flag bit 0 ( reads from
- * the komnata table entry; play_demo_scene is a port shortcut so we
- * raise it directly). For NULL-panel stages keep bit 0 cleared so
- * PaintHudOverlay's portrait + inventory paths stay gated off
- * regardless of any leftover g_items_atlas/g_panel_asset state. */
-    if (stage_has_panel) g_settings_anim_active |=  1;
-    else                 g_settings_anim_active &= ~1u;
-    /* T4 step 1: actor atlases are singletons from PreloadCommonAssets.
- * Previously LoadAssetFromDtaBase per-scene leaked a fresh AnimAsset
- * each scene change while old actor[+0x28] intern slot still pointed
- * at the prior copy. Singleton globals eliminate that leak and pave
- * the way for actor entity persistence (T4 unblocker).
- *
- * Stage 5 (Monter): g_stage->ebek_wyc / fjej_wyc both NULL → the
- * actors are not part of this stage at all (
- * actor-list management gated on komnata flag 0x44e448 & 2).
- * Force the per-slot atlas to NULL so the spawn block below skips. */
+    if (stage_has_panel) g_settings_anim_active |=  KOMNATA_FLAG_PANEL_VISIBLE;
+    else                 g_settings_anim_active &= ~KOMNATA_FLAG_PANEL_VISIBLE;
+}
+
+/* Pick the per-actor atlas to spawn from — NULL for stages where the
+ * actor isn't present (Monter stage 5 has neither). */
+static void resolve_actor_atlases(AnimAsset *out[2])
+{
     extern AnimAsset *g_ebek_atlas, *g_fjej_atlas;
-    AnimAsset *atlases[2] = {
-        (g_stage && !g_stage->ebek_wyc) ? NULL : g_ebek_atlas,
-        (g_stage && !g_stage->fjej_wyc) ? NULL : g_fjej_atlas,
-    };
-    fprintf(stderr, "[scene] initial entry: panel=%d ebek=%d fjej=%d\n",
-            panel       ? panel       ->frame_count : 0,
-            atlases[0]  ? atlases[0]  ->frame_count : 0,
-            atlases[1]  ? atlases[1]  ->frame_count : 0);
+    out[0] = (g_stage && !g_stage->ebek_wyc) ? NULL : g_ebek_atlas;
+    out[1] = (g_stage && !g_stage->fjej_wyc) ? NULL : g_fjej_atlas;
+}
 
-    /* Two actors ( @ 0x004061D0): both visible
- * in every scene, but only the active one responds to
- * clicks. SPACE toggles between them. */
-
-    /* Spawn Ebek (id=1) + Fjej (id=2) as entity-backed actors so the
- * original scripts can position them via op 0x28 SET_ENTITY_XY
- * (which uses to look up the render entity by
- * verb_id in the click list). game's
- * pre-spawn of g_actor / actor entities. */
+/* Spawn Ebek (id=1) + Fjej (id=2) as entity-backed actors so the
+ * original scripts can position them via op 0x28 SET_ENTITY_XY. Actor
+ * entities PERSIST across scene transitions (preserved by EntityList
+ * ClearAll); we only spawn on the FIRST scene. NULL atlas → skip. */
+static void spawn_persistent_actors_if_needed(AnimAsset *atlases[2])
+{
     extern Entity *SpawnActorEntity(uint16_t id, AnimAsset *atlas,
                                     uint16_t init_frame,
                                     int16_t init_x, int16_t init_y);
-    /* T4 step 4: actor entities PERSIST across scene transitions
- * (preserved by EntityListClearAll). Spawn only on FIRST scene;
- * subsequent scenes re-use existing g_actor[i] entities. The
- * persistent actor's anchor/scale/walker state may be carried
- * across — entry-chain (s_entry_dir block) re-positions if
- * scene transition was a hotspot click.
- *
- * For NULL-atlas stages (Monter) atlases[i] is NULL, so spawn is
- * skipped and LoadStage's UnlinkEntity leaves the render list
- * actor-free for the finale. */
-    if (!g_actor[0] && atlases[0])
-        g_actor[0] = SpawnActorEntity(1, atlases[0], 11, 380, 375);
-    if (!g_actor[1] && atlases[1])
-        g_actor[1] = SpawnActorEntity(2, atlases[1], 11, 300, 380);
+    if (!g_actor[0] && atlases[0]) {
+        g_actor[0] = SpawnActorEntity(ACTOR_VERB_EBEK, atlases[0],
+                                      ACTOR_INIT_FRAME,
+                                      ACTOR_EBEK_INIT_X, ACTOR_EBEK_INIT_Y);
+    }
+    if (!g_actor[1] && atlases[1]) {
+        g_actor[1] = SpawnActorEntity(ACTOR_VERB_FJEJ, atlases[1],
+                                      ACTOR_INIT_FRAME,
+                                      ACTOR_FJEJ_INIT_X, ACTOR_FJEJ_INIT_Y);
+    }
+}
 
-    /* Run the original actor entry script — 0x004251C8 LOADs the
- * floor cursor atlases (ids 0x64/0x65) then tail-calls 0x00423E28
- * which conditionally positions Ebek/Fjej via op 0x28 based on
- * var[6] bit 0 (= "in scene transition" flag, default 0).
- *
- * On a fresh scene entry (var[6] bit 0 clear, which is our case)
- * the ELSE branch fires:
- * op 0x28 id=1 (380, 375) ← Ebek
- * op 0x28 id=2 (300, 380) ← Fjej
- * Our op 0x28 implementation in script.c finds the entity via
- * FindUpdateRegistration(kind=2, id) which now resolves both
- * actors thanks to the SpawnActorEntity call above.
- *
- * Call args: this/that = 0x26 (neutral marker).
- * which uses 0x26 for all enter_script / room init calls. Earlier
- * port passed (0, 0) — for op 0x00 (skip-if-not-this), reg_id = 0
- * would compare equal to this_id = 0 → take body. With 0x26 we
- * match the original's neutral-marker convention. */
-    {
-        const uint8_t *entry_script = (const uint8_t *)xlat_binary_ptr(0x004251C8u);
-        if (entry_script) {
-            fprintf(stderr, "[actor] running entry chain @ 0x004251C8\n");
-            RunScriptInterpreter(0x26, 0x26, (uint8_t *)entry_script);
+/* Run the original actor entry chain. The script loads the floor cursor
+ * atlases then conditionally positions Ebek/Fjej via op 0x28 based on
+ * var[6] bit 0 (= "in scene transition" flag, default 0). Call args
+ * (this/that) = SCENE_NEUTRAL_VERB matches the engine's convention for
+ * all enter_script / room init calls — an earlier port passed (0, 0)
+ * which collided with op 0x00 (skip-if-not-this) on reg_id=0. */
+static void run_actor_entry_chain(void)
+{
+    const uint8_t *entry_script =
+        (const uint8_t *)xlat_binary_ptr(ACTOR_ENTRY_SCRIPT_VA);
+    if (entry_script) {
+        fprintf(stderr, "[actor] running entry chain @ 0x%08X\n",
+                ACTOR_ENTRY_SCRIPT_VA);
+        RunScriptInterpreter(SCENE_NEUTRAL_VERB, SCENE_NEUTRAL_VERB,
+                             (uint8_t *)entry_script);
+    }
+}
+
+/* Publish scene walk-bounds + the scene pointer to the globals
+ * HandleSceneInput / is_walkable_at read from. */
+static void publish_scene_walk_bounds(const DemoScene *scene)
+{
+    g_walk_x0 = scene->walk_x0;
+    g_walk_x1 = scene->walk_x1;
+    g_walk_y0 = scene->walk_y0;
+    g_walk_y1 = scene->walk_y1;
+    g_current_scene = (const struct DemoScene *)scene;
+}
+
+/* Recompute the perspective scale_pct at entity[+0x58] each frame for
+ * both actors, matching the prologue of the original UpdateActorMovement.
+ * The walker itself doesn't write +0x58. */
+static void update_actor_perspective_scale(void)
+{
+    for (int i = 0; i < 2; ++i) {
+        if (!g_actor[i]) continue;
+        uint8_t *eb = (uint8_t *)g_actor[i];
+        int16_t anchor_y = EOFF(eb, ENT_OFF_ANCHOR_Y, int16_t);
+        int     scale_pct =
+            (int)g_cursor_speed
+            - ((PERSPECTIVE_BASELINE_Y - anchor_y) * (int)g_perspective_min)
+              / (int)g_perspective_step;
+        if (scale_pct < PERSPECTIVE_SCALE_MIN_PCT) scale_pct = PERSPECTIVE_SCALE_MIN_PCT;
+        if (scale_pct > PERSPECTIVE_SCALE_MAX_PCT) scale_pct = PERSPECTIVE_SCALE_MAX_PCT;
+        EOFF(eb, ENT_OFF_SCALE_PCT, uint16_t) = (uint16_t)scale_pct;
+    }
+}
+
+/* Drain SPACE (toggle active actor) / ESC (user-confirmed quit) from
+ * the platform key queue. Sets *quit on ESC and raises g_game_over_code
+ * to the "user quit" sentinel so the dev `--start-stage` loop can bail
+ * back to the OS instead of looping back to chapter-select. */
+static void handle_gameplay_keys(int *quit)
+{
+    if (!HasPendingKey()) return;
+    uint16_t k = WaitForKey();
+    if (k == VK_ESCAPE) {
+        g_game_over_code = GAME_OVER_USER_QUIT;
+        *quit = 1;
+    } else if (k == VK_SPACE) {
+        g_active_actor ^= 1;
+        fprintf(stderr, "[scene] active actor → %s\n",
+                g_active_actor ? "Fjej" : "Ebek");
+    }
+}
+
+/* F5 quicksave / F9 quickload latches (set by the platform_sdl key
+ * handler, consumed + cleared here). Quicksave stamps slot 0's name
+ * to "Quick" so it shows up distinctly in the Load menu list. */
+static void handle_quicksave_quickload_requests(void)
+{
+    if (g_quicksave_request) {
+        g_quicksave_request = 0;
+        WackiSlot *qs = &g_save.slots[QUICK_SAVE_SLOT];
+        memset(qs->name, 0, sizeof qs->name);
+        snprintf(qs->name, sizeof qs->name, QUICK_SAVE_DISPLAY_NAME);
+        QuickSaveToSlot(QUICK_SAVE_SLOT);
+    }
+    if (g_quickload_request) {
+        g_quickload_request = 0;
+        if (QuickLoadFromSlot(QUICK_SAVE_SLOT)) {
+            /* In-place scene rebuild for the loaded komnata. LoadKomnata
+             * Scene preserves persistent actors, frees old BG/FLD, and
+             * runs the new komnata's enter_script. */
+            LoadKomnataScene(g_cur_komnata);
         }
     }
+}
 
-    /* T22 phase B — s_entry_dir + k_entry_pos workaround retired.
- * With sync op 0x20 + LoadKomnataScene + persistent actors (T4),
- * the verb-script post-GO_EXIT SET_ENTITY_XY runs against the
- * actor entity directly (in the new komnata's coord system).
- * No need for the C-side teleport approximation. Actors keep
- * their pre-transition position (set by initial spawn or by
- * verb-script writes) — the walker freeze in LoadKomnataScene
- * stops any in-flight step from corrupting that position. */
-    /* T130 — s_entry_dir global retired. */
-    extern uint16_t g_active_actor;            /* script.c — g_active_actor */
+/* F12 pause-menu (Pytanie quit-confirmation). Mirrors the original
+ * F12 branch — TAK → quit-to-main-menu, NIE → fall through and keep
+ * playing. */
+static void handle_pause_menu_request(int *quit, const char **next_scene)
+{
+    if (!g_pause_menu_request) return;
+    g_pause_menu_request = 0;
+    extern int RunMenuScene(int, SceneDef *);
+    extern SceneDef g_pytanie_scene;
+    int rc = RunMenuScene(1, &g_pytanie_scene);
+    fprintf(stderr, "[scene] F12 Pytanie rc=%d\n", rc);
+    if (rc == PYTANIE_RC_TAK_QUIT) {
+        g_game_over_code = GAME_OVER_USER_QUIT;
+        *quit = 1;
+        *next_scene = NULL;
+    }
+}
 
-    extern int16_t s_mouse_x, s_mouse_y;
-    const int walk_x0 = scene->walk_x0, walk_x1 = scene->walk_x1;
-    const int walk_y0 = scene->walk_y0, walk_y1 = scene->walk_y1;
-    /* T2 phase B: publish walk bounds + scene to globals for HandleSceneInput. */
-    g_walk_x0 = walk_x0; g_walk_x1 = walk_x1;
-    g_walk_y0 = walk_y0; g_walk_y1 = walk_y1;
-    g_current_scene = (const struct DemoScene *)scene;
-    /* walk_first/walk_last (frame 5..15 = walk-step poses) removed in T3 —
- * per-entity VM walker handles frame cycling via op 0x06/0x12 in the
- * walker bytecode. Manual frame_tick logic gone. */
+/* End-of-scene asset cleanup. Actor atlases are singletons (lifetime =
+ * whole game) — DO NOT free them here; LoadStage frees the panel
+ * asset on stage change. */
+static void cleanup_scene_assets(void)
+{
+    if (g_scene_fld_asset) {
+        FreeAsset(g_scene_fld_asset);
+        g_scene_fld_asset = NULL;
+    }
+    if (g_scene_bg_raw) {
+        xfree(g_scene_bg_raw);
+        g_scene_bg_raw = NULL;
+    }
+    g_scene_bg_size = 0;
+    StopMenuMusic();
+    /* Clear scene/walkability globals so HandleSceneInput called from
+     * blocking-wait pumps (menu, intro AVI) doesn't read stale FLD
+     * pointers. */
+    g_current_scene   = NULL;
+    g_walk_fld_pixels = NULL;
+}
 
-    /* T22 phase B — .fld walkability is loaded by LoadKomnataScene into
- * the g_walk_fld_* globals + g_scene_fld_asset (no per-scene local
- * variable anymore). HandleSceneInput / is_walkable_at read globals
- * directly. The IS_WALKABLE/FLD_AT macros below are no longer needed
- * since the actual is_walkable_at function in game.c top reads the
- * globals. */
-    (void)walk_x0; (void)walk_x1; (void)walk_y0; (void)walk_y1;
+/* Heavy lifting for one scene. Runs the per-frame gameplay loop until
+ * the user quits (ESC / F12→TAK / OPCJE→Quit), a script raises
+ * g_game_over_code, or the platform requests shutdown.
+ *
+ * Setup:                  install_room_palette → LoadKomnataScene →
+ *                         prepare_panel_asset → resolve_actor_atlases →
+ *                         spawn_persistent_actors_if_needed →
+ *                         run_actor_entry_chain → publish_scene_walk_bounds.
+ *
+ * Per-frame (in order):   exit polls, update_actor_perspective_scale,
+ *                         ProcessGameFrameTickInner + FlushFrameToPrimary,
+ *                         TickMenuMusic, key handlers, F5/F9, F3 stats,
+ *                         F12 pause, frame pacing.
+ *
+ * The original engine did all of this inline inside RunGameStageLoop;
+ * this port path is a single-iteration komnata loop that runs until
+ * the actor leaves the stage. Subsequent komnata transitions happen
+ * via op 0x20 → ScriptGoToKomnata → LoadKomnataScene without
+ * unwinding this function. */
+static const char *play_demo_scene(const DemoScene *scene)
+{
+    install_room_palette();
 
-    /* Quit-out signals — set from ESC keyboard, F12 Pytanie TAK,
- * or OpenOptionsMenu Pytanie cascade. Local `quit` polled by
- * the while-condition; g_scene_quit polled at top of each tick. */
+    LoadKomnataScene(g_cur_komnata);
+
+    prepare_panel_asset();
+    AnimAsset *atlases[2];
+    resolve_actor_atlases(atlases);
+    fprintf(stderr, "[scene] initial entry: panel=%d ebek=%d fjej=%d\n",
+            g_panel_asset ? g_panel_asset->frame_count : 0,
+            atlases[0]    ? atlases[0]   ->frame_count : 0,
+            atlases[1]    ? atlases[1]   ->frame_count : 0);
+
+    spawn_persistent_actors_if_needed(atlases);
+    run_actor_entry_chain();
+    publish_scene_walk_bounds(scene);
+
     const char *next_scene = NULL;
-    int quit = 0;
+    int         quit       = 0;
     g_scene_quit = 0;
+
     while (!quit) {
         if (PlatformShouldQuit()) break;
-        if (g_scene_quit) { g_scene_quit = 0; quit = 1; break; }   /* opszyns TAK */
-        /* Bug 2 fix #19 — exit the main loop when a script sets
- * g_game_over_code (= var[14] alias, see Fix #16): 1=death,
- * 3=chapter-select after stage end, 4=stage-end death AVI. 
- * with RunMainGameLoop @ 0x0040BDBD which reads g_game_over_code at
- * the top of each iter and bails to the post-loop handler. */
+        if (g_scene_quit) { g_scene_quit = 0; quit = 1; break; }
         if (g_game_over_code) { quit = 1; break; }
-        /* T2 NOTE: PumpWin32Messages removed here — ProcessGameFrameTickInner
- * below does it. Avoids double event consumption that could drop
- * input events between the two pumps. */
 
-        /* S3-phase-2: per-tick re-sync from local actor_fx/fy arrays
- * REMOVED — walker now reads from entity[+0x22/+0x24] directly,
- * and writes back to those same fields at end of step. Single
- * source of truth = entity. Click targets live in entity
- * [+0x54/+0x56]. */
+        update_actor_perspective_scale();
 
-
-        /* --- Per-actor scale_pct + scene-exit polling (T3 FULL) ---------- *
- * After T3 the per-entity VM walker (op 0x15/0x16 in
- * ) handles actor motion via entity[+0x44..+0x56]
- * fixed-point stepper. EntityWalkerTick (called below) ticks the
- * walker each frame. play_demo_scene no longer runs a parallel
- * manual walker.
- *
- * What we still do here:
- * 1. Compute perspective scale_pct from anchor Y and write to
- * entity[+0x58] each frame.
- * at the top of UpdateActorMovement ( lines 1-12
- * of decompile). Walker doesn't write +0x58 itself.
- * 2. Poll walker completion (entity[+0x4C/+0x50] == 0) for the
- * pending-scene-transition case — when actor walks to an
- * exit hotspot and arrives, trigger the scene change.
- *
- * What we no longer do:
- * - actor_walking[] gate, actor_frame[]/actor_frame_tick[]
- * cycling, actor_facing_right[] — all moved into walker
- * bytecode / BindActorWalker.
- * - Direct writes to entity[+0x22/+0x24/+0x0A/+0x0C/+0x30] —
- * all driven by the per-entity VM tick + post-exec block. */
-        for (int i = 0; i < 2; ++i) {
-            if (!g_actor[i]) continue;
-            uint8_t *eb = (uint8_t *)g_actor[i];
-            int16_t anchor_y = *(int16_t *)(eb + 0x24);
-            int scale_pct = (int)g_cursor_speed
-                          - ((400 - anchor_y) * (int)g_perspective_min)
-                            / (int)g_perspective_step;
-            if (scale_pct < 30)  scale_pct = 30;
-            if (scale_pct > 160) scale_pct = 160;
-            *(uint16_t *)(eb + 0x58) = (uint16_t)scale_pct;
-
-            /* T35: walker-done scene-exit branch retired. Verb-driven
- * exits (op 0x20 GO_EXIT → LoadKomnataScene per T22 phase B
- * + skip_to_endif 0x55 bug fix) handle all transitions
- * directly. This branch is now just per-frame scale_pct
- * update (above) — no walker-completion side-effect. */
-        }
-
-
-        /* --- Composite scene (back→front, ordered by foot_y) ----------- *
- * T-trail: BG paint moved INTO ProcessGameFrameTickInner (top of
- * tick, head `RestorePrevFrameRects`). Before
- * this fix, BG was painted here in play_demo_scene's main loop
- * only — blocking-wait pumps inside scripts (op 0x09 SHOW_TEXT,
- * dialog runner, op 0x10..0x12 walker waits, op 0x26/0x3D frame
- * waits) called ProcessGameFrameTick (Inner+Flush) without any
- * BG repaint, so entities composited on top of the prior frame's
- * shadow buffer → sprite trails everywhere. PGFT Inner now reads
- * g_scene_bg_raw/g_scene_bg_size globals published at the top
- * of play_demo_scene and clears the BG every tick. */
+        /* BG paint + entity composite + HUD overlay + cursor live inside
+         * PGFT Inner — must run every tick (including blocking-wait
+         * pumps inside scripts) or sprite trails will appear. */
         ProcessGameFrameTickInner();
-
-        /* T2 NOTE: TickSpeechBalloon removed here — ProcessGameFrameTick
- * Inner already ticks the speech balloon dismiss counter. */
         FlushFrameToPrimary();
-        TickMenuMusic();                       /* loop seam for per-room WAV */
+        TickMenuMusic();
 
-        /* --- Keyboard: SPACE toggles active actor, ESC exits ----------- */
-        if (HasPendingKey()) {
-            uint16_t k = WaitForKey();
-            if (k == VK_ESCAPE) {
-                /* PORT EXTENSION (original gameplay loop doesn't bind ESC).
- * Treat ESC as an explicit quit-to-main-menu signal — same
- * semantics as F12+TAK and opszyns→Quit. Setting
- * game_over_code=2 lets the dev `--start-stage` loop
- * distinguish "user quit" from "stage ended normally"
- * and bail out instead of looping back to the map. */
-                g_game_over_code = 2;
-                quit = 1;
-            }
-            else if (k == VK_SPACE) {
-                g_active_actor ^= 1;
-                fprintf(stderr, "[scene] active actor → %s\n",
-                        g_active_actor ? "Fjej" : "Ebek");
-            }
-        }
-        /* T53 — F5 quicksave / F9 quickload latches (set by platform_sdl
- * key handler, consumed + cleared here). */
-        if (g_quicksave_request) {
-            g_quicksave_request = 0;
-            /* F5 path — stamp a "Quick" marker so the user can tell it
- * apart from named saves in the Load menu. The Save-menu
- * path sets its own name; QuickSaveToSlot no longer renames. */
-            WackiSlot *qs = &g_save.slots[0];
-            memset(qs->name, 0, sizeof qs->name);
-            snprintf(qs->name, sizeof qs->name, "Quick");
-            QuickSaveToSlot(0);
-        }
-        if (g_quickload_request) {
-            g_quickload_request = 0;
-            if (QuickLoadFromSlot(0)) {
-                /* T22 phase B — trigger in-place scene rebuild for the
- * loaded komnata. LoadKomnataScene preserves persistent
- * actors (T4), frees old BG/FLD, runs new enter_script. */
-                LoadKomnataScene(g_cur_komnata);
-            }
-        }
-        /* T56 — F3 stats dump (logs to stderr). */
+        handle_gameplay_keys(&quit);
+        handle_quicksave_quickload_requests();
         if (g_stats_dump_request) {
             g_stats_dump_request = 0;
             StatsDump();
         }
-        /* T24 — F12 opens Pytanie quit-confirmation menu (
- * RunGameStageLoop @ 0x40BFxx F12 branch). RunMenuScene returns
- * the trigger from PytanieClick: 3 = TAK (exit), 4 = NIE
- * (continue). On TAK we set quit so the scene unwinds back to
- * the main menu via play_first_scene_demo's outer loop. */
-        if (g_pause_menu_request) {
-            g_pause_menu_request = 0;
-            extern int RunMenuScene(int, SceneDef *);
-            extern SceneDef g_pytanie_scene;
-            int rc = RunMenuScene(1, &g_pytanie_scene);
-            fprintf(stderr, "[scene] F12 Pytanie rc=%d\n", rc);
-            if (rc == 3) {                          /* TAK — quit to menu */
-                /*→Quit Pytanie cascade @ game.c:2906
- * (case 0x16: g_game_over_code = 2). Both paths are
- * semantically "user-confirmed quit to main menu", so
- * they raise the same code. Needed for the dev
- * `--start-stage` loop to bail back to the OS instead
- * of returning to the chapter-select map. */
-                g_game_over_code = 2;
-                quit = 1;
-                next_scene = NULL;
-            }
-            /* rc == 4 (NIE) → fall through, keep playing. */
-        }
-        /* T138 — honor `--no-pacing` flag in main gameplay loop too.
- * Earlier the flag only affected FLIC playback; CI runs still
- * waited 33ms/frame in gameplay. Now `./wacki --headless
- * --no-pacing` exercises the engine as fast as possible. */
-        extern int g_no_pacing;
-        if (!g_no_pacing) SDL_Delay(33);
+        handle_pause_menu_request(&quit, &next_scene);
+
+        if (!g_no_pacing) SDL_Delay(TARGET_FRAME_DELAY_MS);
     }
 
-    /* T4 step 1: actor atlases are singletons — DO NOT free here (they
- * live for the whole game in g_ebek_atlas / g_fjej_atlas).
- * T22 phase B: panel/fld/bg_raw moved to globals, freed below. */
-    (void)atlases;
-    (void)panel;          /* g_panel_asset singleton, freed in LoadStage on stage change */
-    if (g_scene_fld_asset) { FreeAsset(g_scene_fld_asset); g_scene_fld_asset = NULL; }
-    if (g_scene_bg_raw)    { xfree(g_scene_bg_raw); g_scene_bg_raw = NULL; }
-    g_scene_bg_size = 0;
-    StopMenuMusic();
-    /* T2 phase B: clear scene/walkability globals so HandleSceneInput
- * called from blocking-wait pumps (menu, intro AVI) doesn't try
- * to read stale fld pointers. */
-    g_current_scene = NULL;
-    g_walk_fld_pixels = NULL;
+    cleanup_scene_assets();
     return next_scene;
 }
 
