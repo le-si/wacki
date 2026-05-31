@@ -37,6 +37,38 @@
  * captured before opszyns opens, then stored per-slot in the .sav). */
 #define SAVE_THUMB_W          126
 #define SAVE_THUMB_H          78
+
+/* The engine's "neutral / no verb" sentinel — sprinkled through every
+ * SceneDef-walking helper, the cursor state machine, and the click-
+ * dispatch path. 0x26 is the original engine's default fall-through
+ * value for verb dispatch. */
+#define SCENE_NEUTRAL_VERB    0x26
+
+/* RunGameStageLoop flag bits. FULL_RESET (new game) zeroes script_vars
+ * + entity_state + ResetInventory then LoadStage(1). SAVE_LOAD (came
+ * from a save load) trusts LoadSaveSlot's prior g_stage_va / g_cur_
+ * komnata restore but falls back to stage-1 defaults if either was
+ * missed. */
+#define STAGE_LOAD_FLAG_FULL_RESET   0x02
+#define STAGE_LOAD_FLAG_SAVE_LOAD    0x10
+
+/* g_game_over_code progress signals. NONE / DEATH / CHAPTER_PICK /
+ * STAGE_END_AVI are the script-progress codes the engine epilogue
+ * branches on; USER_QUIT (2) is the "user-confirmed quit to main
+ * menu" sentinel set by ESC / F12→TAK / OPCJE→Quit. The dev-flow
+ * treats any value not in this list as a user-quit intent. */
+#define GAME_OVER_NONE                0
+#define GAME_OVER_DEATH               1
+#define GAME_OVER_USER_QUIT           2
+#define GAME_OVER_CHAPTER_PICK        3
+#define GAME_OVER_STAGE_END_AVI       4
+
+/* sel_tlo chapter-select "Monter finale" pick value. */
+#define DEV_PICK_FINALE               5
+
+/* RunMenuScene hard-quit return code — set when the platform requests
+ * shutdown (Cmd-Q / window close). */
+#define MAIN_MENU_RC_HARD_QUIT        99
 #define WACKI_SCREEN_BPP      8
 #define WACKI_MAX_DIRTY_RECTS 256
 
