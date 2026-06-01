@@ -37,8 +37,8 @@ Kluczowe pola Entity:
 | Offset | Pole | Co trzyma |
 |---|---|---|
 | `+0x2C` | `bytecode_slot` | Wskaźnik (przez `ent_ptr_intern`) na bytecode atlasu |
-| `+0x2E` | `pc` | Program counter, w **u16-indeksach** (nie bajtach) |
 | `+0x30` | `frame_idx` | Bieżąca klatka animacji do narysowania |
+| `+0x32` | `pc` | Program counter, w **u16-indeksach** (nie bajtach) |
 | `+0x32..+0x42` | walker state | Fixed-point pos (`X.16`/`Y.16`), target, delta |
 | `+0x3A` | `state_flags` | Bit 0 `FRAME_READY`, bit 1 `WALKER_FRESH`, bit 2 `ANIM_ACTIVE` |
 | `+0x3C` | `delay` | Tick-counter — gdy >0, opcode loop pomija |

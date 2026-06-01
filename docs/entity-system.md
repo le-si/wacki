@@ -17,7 +17,7 @@ Najważniejsze pola:
 | Offset | Pole | Co trzyma |
 |---:|---|---|
 | `+0x00` | `width`, `height` | (port-only) tylko dla kind=1 speech balloons |
-| `+0x08` | `flags` (u16) | Bit 0 visible, 0x40 FADE_OR_BG, 0x20 ONESHOT_BG_PEND, 0x100 ALPHA, 0x800 HIDDEN, 0x2000 PENDING_FREE |
+| `+0x08` | `flags` (u16) | 0x01 RENDERABLE, 0x04 DOUBLED, 0x20 ONESHOT_BG_PEND, 0x40 FADE_OR_BG, 0x80 HIDDEN, 0x100 ALPHA_PLANE, 0x200 NO_FOOT_BAKE, 0x400 PERSPECTIVE, 0x2000 SKY, 0x8000 PENDING_FREE |
 | `+0x0A` | `drawn_x` | Pozycja gdzie ostatnio narysowany (set przez VM lub render path) |
 | `+0x0C` | `drawn_y` | j.w. |
 | `+0x0E` | verb_table (slot) | Pointer (przez ent_ptr_intern) do tabeli verbów dla kind=1 |
@@ -27,8 +27,8 @@ Najważniejsze pola:
 | `+0x26` | `foot_y` | Y-coord stopy actor'a, key do Z-sort |
 | `+0x28` | `atlas_slot` | Pointer (przez ent_ptr_intern) na AnimAsset |
 | `+0x2C` | `bytecode_slot` | Pointer (interned) na bytecode per-entity VM |
-| `+0x2E` | `pc` | Program counter w u16-stride |
 | `+0x30` | `frame_idx` | Bieżąca klatka animacji |
+| `+0x32` | `pc` | Program counter w u16-stride |
 | `+0x3A` | `state_flags` | bit 0 FRAME_READY, bit 1 WALKER_FRESH, bit 2 ANIM_ACTIVE |
 | `+0x3C` | `delay` | Per-entity VM tick counter |
 | `+0x3E` | `delay_reset` | Reset value cyklicznego delay |

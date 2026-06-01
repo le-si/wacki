@@ -190,7 +190,7 @@ flowchart LR
 
 `PlaySfxPanned(wav, gain_l, gain_r)` ustawia `s_mix[ch].gain_l`/`gain_r`
 per kanał (0..255, 128 = unity). Wektor pan obliczany przez
-`SoundQueueMixForListener(listener_x, listener_y)` w `src/stubs.c` —
+`SoundQueueMixForListener(listener_x, listener_y)` w `src/audio/sound_queue.c` —
 zwraca packed `(R<<16)|(C<<8)|L`, `ScriptCallSoundPlay` rozkłada to
 na `eL = L + C/2`, `eR = R + C/2`.
 
