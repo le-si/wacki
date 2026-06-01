@@ -71,7 +71,7 @@ extern Entity *g_actor[2];
 
 extern void  *g_scene_bg_raw;
 extern uint32_t g_scene_bg_size;
-extern int16_t g_walk_fld_oy;
+extern int     g_walk_fld_oy;
 
 /* ---- depth-sort comparator ----------------------------------------- *
  *

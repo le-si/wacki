@@ -16,11 +16,11 @@
 #include <stdint.h>
 
 extern const uint8_t *g_walk_fld_pixels;
-extern uint16_t       g_walk_fld_w;
-extern uint16_t       g_walk_fld_h;
-extern uint16_t       g_walk_fld_stride;
-extern uint16_t       g_walk_fld_ox;
-extern uint16_t       g_walk_fld_oy;
+extern int            g_walk_fld_w;
+extern int            g_walk_fld_h;
+extern int            g_walk_fld_stride;
+extern int            g_walk_fld_ox;
+extern int            g_walk_fld_oy;
 extern int            g_walk_x0, g_walk_x1, g_walk_y0, g_walk_y1;
 
 /* T2 phase B: walkability test using globals (set by play_demo_scene at

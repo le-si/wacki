@@ -27,8 +27,8 @@ extern Entity   *g_render_list_head;
 extern int       g_persp_band_count;
 extern uint16_t  g_komnata_flags;
 extern const uint8_t *g_walk_fld_pixels;
-extern uint16_t  g_walk_fld_w, g_walk_fld_h, g_walk_fld_stride;
-extern int16_t   g_walk_fld_ox, g_walk_fld_oy;
+extern int       g_walk_fld_w, g_walk_fld_h, g_walk_fld_stride;
+extern int       g_walk_fld_ox, g_walk_fld_oy;
 
 extern void   *xmalloc(uint32_t sz);
 extern void    LinkEntityToList(Entity **head, Entity *e, int position);

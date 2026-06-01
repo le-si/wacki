@@ -316,9 +316,16 @@ static void apply_early_cli_effects(const CliArgs *args)
     if (g_headless) {
         /* Force SDL's null video / audio backends so SDL_Init doesn't
          * try to connect to Cocoa / X11 / Wayland. Caller can still
-         * override by setting SDL_VIDEODRIVER before launch. */
-        setenv("SDL_VIDEODRIVER", "dummy", 0);
-        setenv("SDL_AUDIODRIVER", "dummy", 0);
+         * override by setting SDL_VIDEODRIVER before launch.
+         *
+         * SDL_setenv is portable across every platform SDL supports
+         * (Win32, POSIX, …) and handles the "set if not already set"
+         * branch via SDL_getenv. Plain setenv() isn't in MSVCRT, so
+         * mingw rejects it. */
+        if (!SDL_getenv("SDL_VIDEODRIVER"))
+            SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
+        if (!SDL_getenv("SDL_AUDIODRIVER"))
+            SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
         LOG_INFO("wacki", "headless mode");
     }
     if (args->seed_set) {
@@ -349,9 +356,12 @@ static int run_cutscene_test_mode(const CliArgs *args)
         return 1;
     }
     if (args->test_cutscenes) {
-        LOG_TRACE("cutscene-test", "batch %zu files", KNOWN_CUTSCENE_COUNT);
+        LOG_TRACE("cutscene-test", "batch %u files",
+                  (unsigned)KNOWN_CUTSCENE_COUNT);
         for (size_t i = 0; i < KNOWN_CUTSCENE_COUNT; ++i) {
-            LOG_TRACE("cutscene-test", "[%zu/%zu] %s", i + 1, KNOWN_CUTSCENE_COUNT, k_known_cutscenes[i]);
+            LOG_TRACE("cutscene-test", "[%u/%u] %s",
+                      (unsigned)(i + 1), (unsigned)KNOWN_CUTSCENE_COUNT,
+                      k_known_cutscenes[i]);
             PlaySceneCutsceneAvi(k_known_cutscenes[i]);
         }
         LOG_TRACE("cutscene-test", "done");

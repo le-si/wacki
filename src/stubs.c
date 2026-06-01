@@ -24,7 +24,7 @@
  */
 uint32_t  g_entity_state[0x11C];        /* g_entity_state */
 uint32_t  g_scene_snapshot[0x1E];       /* g_inventory */
-int16_t   g_persp_profile[0x22*2];      /* g_persp_profile */
+/* g_persp_profile is defined in src/assets.c (canonical storage). */
 
 /* ActorWalkToBlocking — implements ops 0x10/0x11/0x12 wait-for-walk.
  *

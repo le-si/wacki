@@ -115,7 +115,8 @@ void WriteSaveFile(void)
     if (written != sizeof g_save) {
         fclose(fp);
         remove(tmp_path);
-        LOG_INFO("save", "short write (%zu/%zu) — keeping previous save", written, sizeof g_save);
+        LOG_INFO("save", "short write (%lu/%lu) — keeping previous save",
+                 (unsigned long)written, (unsigned long)sizeof g_save);
         return;
     }
     fflush(fp);
