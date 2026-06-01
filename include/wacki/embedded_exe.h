@@ -43,7 +43,11 @@ typedef struct PeSlice {
 
 extern const PeSlice            g_wacki_pe_slices[];
 extern const int                g_wacki_pe_slice_count;
-extern const unsigned char      g_wacki_pe_blob[];
+/* Deliberately non-const: op 0x27 SET_TAGGED_FIELD patches actor
+ * bytecode through the PeLoaderRead result. The original engine's
+ * runtime image was always writable; linking us into .rodata would
+ * SIGBUS on that store. */
+extern       unsigned char      g_wacki_pe_blob[];
 extern const unsigned int       g_wacki_pe_blob_len;
 extern const uint32_t           g_wacki_pe_image_base;
 

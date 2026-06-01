@@ -227,9 +227,13 @@ int main(int argc, char **argv)
         "\n");
 
     /* The blob itself — concatenated raw bytes, line-broken every 16
-     * for readable diffs. */
+     * for readable diffs. Deliberately NOT const: op 0x27
+     * SET_TAGGED_FIELD patches the actor's bytecode in place via the
+     * PeLoaderRead result, and the original engine's runtime image
+     * was always writable. Linking the blob into .rodata would
+     * SIGBUS on that store. */
     fprintf(out,
-        "const unsigned char g_wacki_pe_blob[] = {\n");
+        "unsigned char g_wacki_pe_blob[] = {\n");
     uint32_t total = 0;
     for (int i = 0; i < keep_n; ++i) {
         fprintf(out,
