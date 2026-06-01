@@ -64,8 +64,15 @@ extern Entity *g_actor[2];
 #define BG_PERSIST_TOP_LIMIT  200
 #define BG_PERSIST_BOT_LIMIT  380
 
-/* ---- viewport off-screen guard (generous on the right edge so
- * mid-flight off-screen sprites still render their tail) ------- */
+/* ---- viewport off-screen guard (generous on every edge so mid-
+ * flight off-screen sprites still render their tail). The left/top
+ * pads were absent originally — that asymmetry caused near-edge
+ * actors to flicker, because each animation frame's tight bbox has
+ * slightly different width/draw-offset and the boundary kept
+ * crossing the unpadded `dx+fw <= 0` test. Matching the right/bottom
+ * margins absorbs the per-frame bbox swing (~30 px worst-case). */
+#define VIEWPORT_LEFT_PAD      200
+#define VIEWPORT_TOP_PAD       200
 #define VIEWPORT_RIGHT_PAD     200
 #define VIEWPORT_BOTTOM_PAD    200
 
@@ -160,7 +167,15 @@ static void paint_oneshot_bg(Entity *e, uint16_t flags, AnimAsset *atlas)
 
     PaintImageToBackbuffer(bx, by, fw, fh, px);
     EOFF(e, 8, uint16_t) = (uint16_t)(flags & ~(uint16_t)EFLAG_ONESHOT_BG_PEND);
-    FlushFrameToPrimary();
+    /* No mid-frame FlushFrameToPrimary here — it used to present a
+     * half-built frame the moment a one-shot-BG entity painted itself,
+     * which broke frame atomicity. Z-sorted entities drawn AFTER this
+     * one (typically the foreground actors) were missing in the
+     * intermediate present, then reappeared on the outer flush at the
+     * end of the render pass. Visible result: actors and overlapping
+     * animated assets flickered every time a background asset
+     * advanced its animation frame. The outer FlushFrameToPrimary at
+     * the end of paint_frame already presents the complete buffer. */
 
     int top_high_enough = (by < BG_PERSIST_TOP_LIMIT) ||
                           ((by + fh) >= BG_PERSIST_BOT_LIMIT);
@@ -297,12 +312,15 @@ void EntityRenderAll(Entity *head)
             dy = (int16_t)atlas->off_drawY[f];
         }
 
-        /* Off-screen cull. Generous on right/bottom so mid-flight
- * tail-off-screen sprites still render their visible portion. */
-        if ((int)dx + (int)fw <= 0) continue;
-        if ((int)dy + (int)fh <= 0) continue;
-        if (dx >= (int)g_screen_w + VIEWPORT_RIGHT_PAD)  continue;
-        if (dy >= (int)g_screen_h + VIEWPORT_BOTTOM_PAD) continue;
+        /* Off-screen cull — symmetric pad on every edge absorbs the
+         * per-frame bbox swing of animated atlases (~30 px worst). */
+        if ((int)dx + (int)fw + VIEWPORT_LEFT_PAD <= 0 ||
+            (int)dy + (int)fh + VIEWPORT_TOP_PAD  <= 0 ||
+            dx >= (int)g_screen_w + VIEWPORT_RIGHT_PAD ||
+            dy >= (int)g_screen_h + VIEWPORT_BOTTOM_PAD)
+        {
+            continue;
+        }
 
         uint16_t scale = EOFF(e, ENT_OFF_SCALE_PCT, uint16_t);
 
