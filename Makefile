@@ -159,8 +159,8 @@ ENGINE_SRCS = \
 	src/menu/main_menu.c
 
 TOOL_SRCS_EXTRACT = tools/dta-extract.c src/depack.c src/archive.c \
-                    src/cygio.c src/heap.c
-TOOL_SRCS_PKV2    = tools/pkv2-depack.c src/depack.c
+                    src/cygio.c src/heap.c src/log.c
+TOOL_SRCS_PKV2    = tools/pkv2-depack.c src/depack.c src/log.c
 
 # ---- tests (no SDL) -----------------------------------------------------
 # Unit tests link only the SDL-free subset of the engine + small mocks
