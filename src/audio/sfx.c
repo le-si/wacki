@@ -402,12 +402,23 @@ static void sfx_handle_end_frames(const char *asset_name, int frame)
 {
     for (int i = 0; i < g_dynamic_sfx_count; ++i) {
         struct FrameSfxEntry *e = &g_dynamic_sfx[i];
-        if (e->frame_end == SFX_FRAME_END_NONE ||
-            e->frame_end != frame) continue;
+        if (e->frame_end == SFX_FRAME_END_NONE) continue;
+        /* `frame >= frame_end` instead of `==`. The entity VM can
+         * advance the frame index by more than 1 per tick (via
+         * PVM_ADVANCE_FRAME arg, or when a tick budget catches up
+         * after a slow render), and if the increment steps past the
+         * end_frame we'd never have stopped the looping wav. The
+         * skateboard skid SFX stayed playing forever after the boy
+         * fell because his animation skipped over the exact end
+         * frame. mixer_stop_channel is idempotent so calling it
+         * once per "frame is past end" is harmless. */
+        if (frame < e->frame_end) continue;
         if (strcmp(e->asset, asset_name) != 0) continue;
         struct SfxState *st = sfx_state_for(e->asset, e->frame_start, e->wav);
         if (!st) continue;
-        LOG_TRACE("sfx", "stop '%s' at end-frame %d (asset=%s start=%d ch=%d)", e->wav, frame, asset_name, e->frame_start, st->channel);
+        if (!st->playing_flag && st->channel < 0) continue;     /* already stopped */
+        LOG_TRACE("sfx", "stop '%s' at end-frame %d (asset=%s start=%d ch=%d)",
+                  e->wav, frame, asset_name, e->frame_start, st->channel);
         if (st->channel >= MIX_CHAN_SFX_START &&
             st->channel < MIX_CHANNEL_COUNT) {
             mixer_stop_channel(st->channel);

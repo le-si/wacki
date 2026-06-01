@@ -169,6 +169,19 @@ void ScriptCallDestroyEnt(uint16_t id, int also_unreg_asset)
                 continue;
             }
 
+            /* Stop any looping [sampl] SFX this entity's atlas owns
+             * before freeing the entity. Without this, the wav keeps
+             * playing forever — sfx_handle_end_frames only fires on
+             * the entity's own frame ticks, and once the entity is
+             * gone nothing ever increments past frame_end. Triggered
+             * by the user-reported "skateboard skid sound kept
+             * looping after the boy crashed". */
+            AnimAsset *atlas = (AnimAsset *)ent_ptr_resolve(
+                EOFF(e, ENT_OFF_ATLAS_SLOT, uint32_t));
+            if (atlas && atlas->name[0]) {
+                StopAllSfxForAsset(atlas->name);
+            }
+
             UnregisterEntityByPtr(e);
             UnlinkEntity(e);
             xfree(e);
