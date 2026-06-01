@@ -31,7 +31,7 @@ static void set_test_cwd(void)
     if (!getcwd(s_orig_cwd, sizeof s_orig_cwd)) s_orig_cwd[0] = 0;
     snprintf(s_tmp_dir, sizeof s_tmp_dir,
              "/tmp/wacki-test-save-ext-%d", (int)getpid());
-    mkdir(s_tmp_dir, 0700);
+    test_mkdir(s_tmp_dir);
     chdir(s_tmp_dir);
     remove("Wacki.sav");
     remove("Wacki.sav.tmp");

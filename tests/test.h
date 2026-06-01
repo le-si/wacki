@@ -152,4 +152,15 @@ extern int g_test_passed;         /* incremented per passed test */
         if (_p == NULL) TEST_FAIL_("expected non-NULL: %s", #p);              \
     } while (0)
 
+/* POSIX mkdir takes two args (path, mode); mingw's variant takes only
+ * the path. Tests that need to spin up a temp directory go through
+ * test_mkdir() so they stay portable. */
+#ifdef _WIN32
+#  include <direct.h>
+#  define test_mkdir(path)  _mkdir(path)
+#else
+#  include <sys/stat.h>
+#  define test_mkdir(path)  mkdir((path), 0700)
+#endif
+
 #endif /* WACKI_TEST_H */
