@@ -282,10 +282,16 @@ jobs:
       - name: Strip + log size
         run: |
           # Use the same toolchain image for `strip` so the ARM ELF is
-          # parsed correctly (host `strip` rejects unknown arch).
-          IMG="${MIYOO_DOCKER_IMAGE:-shauninman/union-miyoomini-toolchain:latest}"
-          docker run --rm -v "$PWD:/root/workspace" -w /root/workspace "$IMG" \
-            arm-linux-gnueabihf-strip --strip-all dist/wacki-miyoo
+          # parsed correctly (host `strip` rejects unknown arch). Bin
+          # isn't in PATH so call by full path; image default keeps
+          # in sync with tools/build-miyoo.sh.
+          IMG="${MIYOO_DOCKER_IMAGE:-bqcuongas/sdl2-miyoo:latest}"
+          before=$(wc -c < dist/wacki-miyoo | tr -d ' ')
+          docker run --rm --platform linux/amd64 \
+            -v "$PWD:/root/workspace" -w /root/workspace "$IMG" \
+            /opt/mmiyoo/bin/arm-linux-gnueabihf-strip --strip-all dist/wacki-miyoo
+          after=$(wc -c < dist/wacki-miyoo | tr -d ' ')
+          printf '[size] dist/wacki-miyoo: %s -> %s bytes\n' "$before" "$after"
           ls -lh dist/wacki-miyoo
 
       - name: Package .pak
