@@ -52,9 +52,18 @@ CI / release builds: pushes to `master` and tagged `v*` builds run
 the matrix in [`.github/workflows/build.yml`](.github/workflows/build.yml).
 Each runner pulls a copy of WACKI.EXE from a URL stored as the
 `WACKI_EXE_URL` GH Actions secret (the bytes never enter the repo
-or the published artifacts), builds the engine, runs the test suite,
+or the published artifacts), builds the engine with **`STATIC_SDL2=1`**
+(SDL2 + every transitive system link baked in), runs the test suite,
 and uploads a per-platform archive. On tag push, the archives get
 attached to a GitHub Release automatically.
+
+Released artefacts are fully self-contained: macOS / Linux / Windows
+binaries that run on a fresh system without `brew install sdl2` /
+`apt install libsdl2`. Each CI leg fails if any SDL2 symbol remains
+dynamic in the binary (`otool -L` / `ldd` / `objdump -p` check). The
+local dev build defaults to dynamic SDL2 for faster iteration; pass
+`STATIC_SDL2=1` to `make` if you want to reproduce the released
+shape locally.
 
 The engine looks for the game data in this order:
 

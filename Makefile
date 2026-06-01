@@ -19,7 +19,23 @@ CFLAGS   ?= -O2 -Wall -Wextra -Wpedantic \
 # overshoots by 1px per tick → cascading "actor walks past target"
 # bugs (Fjej weź-kwiatka overshoot, Ebek climb glitches).
 SDL_CFG  := $(shell $(SDL2_CFG) --cflags 2>/dev/null)
-SDL_LIB  := $(shell $(SDL2_CFG) --libs   2>/dev/null)
+
+# STATIC_SDL2=1 selects a fully self-contained engine binary: SDL2 +
+# its transitive system links are baked into the binary so the user
+# doesn't need libSDL2 installed. CI release builds set this; the
+# default (=0) keeps the developer build dynamic for fast iteration
+# + easier debugging.
+#
+# `SDL_LIB_DYN`  always dynamic — used by the sanitized debug build
+#                (ASan + static SDL2 don't mix).
+# `SDL_LIB`      tracks STATIC_SDL2 — used by the release engine.
+STATIC_SDL2 ?= 0
+SDL_LIB_DYN := $(shell $(SDL2_CFG) --libs 2>/dev/null)
+ifeq ($(STATIC_SDL2),1)
+    SDL_LIB := $(shell $(SDL2_CFG) --static-libs 2>/dev/null)
+else
+    SDL_LIB := $(SDL_LIB_DYN)
+endif
 
 # All built binaries land in $(DIST). The directory is gitignored —
 # build artefacts never sit at the repo root or alongside the source
@@ -35,6 +51,20 @@ ifeq ($(OS),Windows_NT)
     EXE := .exe
 else
     EXE :=
+endif
+
+# Extra link flags for fully-static Windows: drop the mingw gcc /
+# winpthread DLLs that linker pulls in by default. POSIX builds
+# don't need this — the static SDL2 already lists every system
+# library through `sdl2-config --static-libs`.
+ifeq ($(STATIC_SDL2),1)
+ifeq ($(OS),Windows_NT)
+    LDFLAGS_STATIC := -static -static-libgcc
+else
+    LDFLAGS_STATIC :=
+endif
+else
+    LDFLAGS_STATIC :=
 endif
 
 # T43 — debug build with AddressSanitizer + UBSan. Use `make debug` to
@@ -176,14 +206,15 @@ all: engine tools
 
 engine: $(DIST)/wacki$(EXE)
 $(DIST)/wacki$(EXE): $(ENGINE_SRCS) | $(DIST)
-	$(CC) $(CFLAGS) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(SDL_LIB)
+	$(CC) $(CFLAGS) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(SDL_LIB) $(LDFLAGS_STATIC)
 
 # Debug build with sanitizers — separate binary so the release build
 # stays untouched. Run via $(DIST)/wacki-debug --headless for CI fuzz
-# runs.
+# runs. Sanitizers + static linking don't mix, so the debug build
+# always uses the dynamic SDL2.
 debug: $(DIST)/wacki-debug$(EXE)
 $(DIST)/wacki-debug$(EXE): $(ENGINE_SRCS) | $(DIST)
-	$(CC) $(DEBUG_CFLAGS) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(SDL_LIB) $(DEBUG_LDFLAGS)
+	$(CC) $(DEBUG_CFLAGS) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(SDL_LIB_DYN) $(DEBUG_LDFLAGS)
 
 tools: $(DIST)/dta-extract$(EXE) $(DIST)/pkv2-depack$(EXE)
 

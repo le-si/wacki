@@ -10,6 +10,10 @@
 # ends up in artifacts (the embedded slice table inside the engine
 # binary is a transformation, but the source bytes themselves are
 # never re-uploaded).
+#
+# Each build statically links SDL2 (STATIC_SDL2=1) so the released
+# artefacts have no runtime dependency on libSDL2 / SDL2.dll. The
+# static SDL2 is built once per (OS, SDL2_VERSION) and cached.
 
 name: build
 
@@ -20,6 +24,9 @@ on:
   pull_request:
     branches: [master, main]
   workflow_dispatch:
+
+env:
+  SDL2_VERSION: 2.30.10        # SDL2 source tarball version
 
 jobs:
   build:
@@ -48,17 +55,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ---- platform-specific deps -----------------------------------
-      - name: Install SDL2 (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install sdl2
-
-      - name: Install SDL2 (Linux)
+      # ---- Linux: install SDL2's build-time deps so the static SDL2 can
+      #   embed its dlopen stubs against system libs (libasound,
+      #   libpulse, libX11, libGL, etc. — present on any desktop Linux
+      #   at runtime, so the binary stays portable).
+      - name: Install SDL2 build deps (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsdl2-dev
+          sudo apt-get install -y \
+            build-essential cmake pkg-config \
+            libasound2-dev libpulse-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxi-dev libxss-dev libxkbcommon-dev libwayland-dev \
+            libdrm-dev libgbm-dev libgl1-mesa-dev libegl1-mesa-dev \
+            libdbus-1-dev libudev-dev libibus-1.0-dev libsamplerate0-dev
 
+      # ---- macOS: cmake for SDL2 build. Apple frameworks (Cocoa,
+      #   CoreAudio, IOKit, etc.) are part of macOS itself — no install.
+      - name: Install build deps (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install cmake
+
+      # ---- Windows: MSYS2 ships static + dynamic SDL2 in a single
+      #   package, so we skip the build-from-source step entirely.
       - name: Setup MSYS2 (Windows)
         if: matrix.os == 'windows-latest'
         uses: msys2/setup-msys2@v2
@@ -68,10 +89,42 @@ jobs:
           install: >-
             base-devel
             mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-SDL2
             zip
 
-      # ---- fetch the build-time data dependency ---------------------
+      # ---- cache the built static SDL2 across CI runs --------------
+      - name: Cache static SDL2
+        if: matrix.os != 'windows-latest'
+        uses: actions/cache@v4
+        id: sdl2-cache
+        with:
+          path: sdl2-install
+          key: sdl2-static-${{ matrix.os }}-${{ env.SDL2_VERSION }}
+
+      - name: Build static SDL2 from source
+        if: matrix.os != 'windows-latest' && steps.sdl2-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o sdl2.tar.gz \
+            "https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VERSION}/SDL2-${SDL2_VERSION}.tar.gz"
+          tar xf sdl2.tar.gz
+          cd SDL2-${SDL2_VERSION}
+          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+                -DSDL_SHARED=OFF -DSDL_STATIC=ON \
+                -DSDL_TEST=OFF \
+                -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/sdl2-install"
+          cmake --build build --parallel
+          cmake --install build
+
+      - name: Expose static sdl2-config (POSIX)
+        if: matrix.os != 'windows-latest'
+        run: |
+          chmod +x "$GITHUB_WORKSPACE/sdl2-install/bin/sdl2-config"
+          echo "$GITHUB_WORKSPACE/sdl2-install/bin" >> "$GITHUB_PATH"
+          # Sanity check
+          "$GITHUB_WORKSPACE/sdl2-install/bin/sdl2-config" --static-libs
+
+      # ---- fetch the build-time data dependency --------------------
       - name: Fetch WACKI.EXE
         env:
           WACKI_EXE_URL: ${{ secrets.WACKI_EXE_URL }}
@@ -85,23 +138,50 @@ jobs:
                "$WACKI_EXE_URL" -o data/WACKI.EXE
           ls -la data/WACKI.EXE
 
-      # ---- build + test ---------------------------------------------
-      # Windows: route make through the MSYS2 shell so `cc`,
-      # `sdl2-config`, `make` resolve from /mingw64.
-      - name: Build + test (POSIX)
+      # ---- build + test --------------------------------------------
+      - name: Build + test (POSIX, static SDL2)
         if: matrix.os != 'windows-latest'
         run: |
-          make all
-          make test
+          make all STATIC_SDL2=1
+          # Tests link the same way; cheap to verify here.
+          make test STATIC_SDL2=1
 
-      - name: Build + test (Windows)
+      - name: Build + test (Windows, static SDL2)
         if: matrix.os == 'windows-latest'
         shell: msys2 {0}
         run: |
-          make all
-          make test
+          make all STATIC_SDL2=1
+          make test STATIC_SDL2=1
 
-      # ---- package + upload -----------------------------------------
+      # ---- confirm zero external SDL2 dependency in the binary -----
+      - name: Verify no dynamic SDL2 linkage (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          ! otool -L dist/wacki | grep -q SDL2 \
+            || (echo "::error::dist/wacki still links to SDL2 dynamically"; otool -L dist/wacki; exit 1)
+          otool -L dist/wacki
+
+      - name: Verify no dynamic SDL2 linkage (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          ! ldd dist/wacki | grep -qi SDL2 \
+            || (echo "::error::dist/wacki still links to SDL2 dynamically"; ldd dist/wacki; exit 1)
+          ldd dist/wacki
+
+      - name: Verify no dynamic SDL2 linkage (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: |
+          # objdump -p ... | grep "DLL Name" lists every dynamic DLL
+          # the .exe imports. Look for SDL2.dll specifically.
+          deps=$(objdump -p dist/wacki.exe | grep "DLL Name" | awk '{print $3}')
+          echo "$deps"
+          if echo "$deps" | grep -qi '^SDL2\.dll$'; then
+              echo "::error::dist/wacki.exe still imports SDL2.dll"
+              exit 1
+          fi
+
+      # ---- package + upload ----------------------------------------
       - name: Package (POSIX)
         if: matrix.os != 'windows-latest'
         run: |
@@ -116,9 +196,6 @@ jobs:
         run: |
           mkdir -p staging
           cp dist/wacki.exe staging/
-          # MSYS2 ships SDL2.dll at /mingw64/bin — the engine links
-          # against it, so users need it alongside the .exe.
-          cp /mingw64/bin/SDL2.dll staging/
           cp README.md staging/ 2>/dev/null || true
           (cd staging && zip -r "../${{ matrix.artifact }}.zip" .)
 
@@ -129,7 +206,7 @@ jobs:
           path: ${{ matrix.artifact }}.${{ matrix.archive_ext }}
           if-no-files-found: error
 
-  # ---- release ------------------------------------------------------
+  # ---- release -----------------------------------------------------
   # Only fires on tag push (`v*`). Pulls the three per-platform
   # archives from the matrix build above and attaches them to a
   # GitHub Release named after the tag.
