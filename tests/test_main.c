@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <setjmp.h>
 
+#include "test.h"
+
 /* Runner globals — declared `extern` in test.h, defined here once. */
 jmp_buf g_test_jmp;
 const char *g_test_name = "(none)";
@@ -138,6 +140,12 @@ int main(int argc, char **argv)
      * libc buffer until the process exits. */
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
+
+    /* Tests hard-code POSIX "/tmp/wacki-test-*" paths. On MSYS2/mingw,
+     * fopen treats those as "\tmp\..." on the current drive — which doesn't
+     * exist on a fresh Windows runner. Ensure it does. Ignore errors:
+     * if it already exists mkdir returns -1/EEXIST and that's fine. */
+    test_mkdir("/tmp");
 
     int total_passed = 0;
     int total_failed = 0;
