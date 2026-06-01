@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# Stage the Miyoo build into an OnionOS / MinUI-compatible .pak.
+# Stage the Miyoo build into the OnionOS Ports package layout
+# documented at https://onionui.github.io/docs/ports.
 #
 # Output layout (zipped):
 #
-#   Wacki.pak/
-#       launch.sh        wrapper: chmods + execs the binary
-#       wacki            the cross-built engine
-#       data/            game assets (.dta, fonts, etc. — caller-provided)
-#       Wacki.png        in-launcher icon (optional)
+#   Roms/
+#   └── PORTS/
+#       ├── Games/Wacki/
+#       │   ├── wacki                      cross-built engine binary
+#       │   ├── data/                      user drops Dane_*.dta here
+#       │   └── _required_files.txt        what the user must provide
+#       ├── Imgs/Wacki.png                 launcher icon (optional)
+#       └── Shortcuts/Adventure/Wacki.notfound   menu entry → calls launch_standalone.sh
 #
-# The .pak drops under SD:/App/ on stock firmware or SD:/Apps/ under
-# OnionOS — both pick it up automatically. Game data is NOT bundled
-# by this script (copyright reasons) — the player drops their own
-# DTA files into the pak's data/ directory.
+# The whole tree is meant to be extracted at the SD-card root and
+# merged into the existing Roms/ folder — that is OnionOS' install
+# convention for ports.
 #
 # Usage:  ./tools/pack-miyoo.sh [output.zip]
 #         Default output: dist/wacki-miyoo.zip
@@ -31,48 +34,102 @@ out="${1:-dist/wacki-miyoo.zip}"
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 
-pak="$stage/Wacki.pak"
-mkdir -p "$pak/data"
+# ---- layout under stage/ -------------------------------------------------
+games_dir="$stage/Roms/PORTS/Games/Wacki"
+imgs_dir="$stage/Roms/PORTS/Imgs"
+shortcuts_dir="$stage/Roms/PORTS/Shortcuts/Adventure"
 
-cp "$bin" "$pak/wacki"
-chmod +x "$pak/wacki"
+mkdir -p "$games_dir/data" "$imgs_dir" "$shortcuts_dir"
 
-# launch.sh: OnionOS sets PWD to the .pak when launching. The engine
-# discovers data/ adjacent to the binary via SDL_GetBasePath, so no
-# extra path wiring is needed. SDL_VIDEODRIVER is forced to mali
-# because OnionOS's SDL2 build prefers the Mali GLES path; without
-# the explicit hint it sometimes falls back to a broken fbdev probe.
-cat > "$pak/launch.sh" <<'LAUNCH'
-#!/bin/sh
-cd "$(dirname "$0")"
-export HOME="$(pwd)"
-export SDL_VIDEODRIVER=mali
-export SDL_AUDIODRIVER=alsa
-./wacki >> wacki.log 2>&1
-LAUNCH
-chmod +x "$pak/launch.sh"
+# Binary lands at <GameDir>/<GameExecutable> — OnionOS' launch_standalone.sh
+# does `cd "$GameDir"; HOME="$GameDir"` before invoking it, so the engine
+# finds ./data/ adjacent to argv[0] via SDL_GetBasePath fallback.
+cp "$bin" "$games_dir/wacki"
+chmod +x "$games_dir/wacki"
 
-# Optional icon — drop one in assets/icons/wacki-miyoo.png to embed.
+# Tell the user which files they have to provide. OnionOS' Package
+# Manager surfaces this list in the "required files" UI.
+cat > "$games_dir/_required_files.txt" <<'EOF'
+data/Dane_02.dta
+data/Dane_03.dta
+data/Dane_04.dta
+data/Dane_05.dta
+data/Dane_06.dta
+data/Dane_07.dta
+data/Dane_08.dta
+data/Dane_09.dta
+data/Dane_10.dta
+EOF
+
+# Optional launcher icon. Drop a 250×250 PNG at assets/icons/wacki-miyoo.png
+# to embed it; otherwise the entry shows OnionOS' default port icon.
 if [ -f assets/icons/wacki-miyoo.png ]; then
-    cp assets/icons/wacki-miyoo.png "$pak/Wacki.png"
+    cp assets/icons/wacki-miyoo.png "$imgs_dir/Wacki.png"
 fi
 
-cat > "$pak/README.txt" <<'README'
-Wacki — Miyoo Mini Plus port.
+# Shortcut script — sits under Shortcuts/<Category>/<Name>.notfound and
+# delegates to OnionOS' shared launch_standalone.sh. Filename starts as
+# .notfound; first time GameDataFile is detected the system renames it
+# to .port. Category folder controls grouping in the Ports menu.
+cat > "$shortcuts_dir/Wacki.notfound" <<'SHORTCUT'
+#!/bin/sh
+# Standalone port shortcut — calls OnionOS' shared launcher.
 
-Place your DTA files in:    data/
-Then drop this entire Wacki.pak directory under:
-    /App/        (stock firmware)
-or:
-    /Apps/       (OnionOS)
+GameName="Wacki"
+GameDir="Wacki"
+GameExecutable="wacki"
 
-D-pad moves the cursor. A = LMB, B = RMB. Start = pause (F12).
-Hold any d-pad direction to accelerate; release to reset.
+# Probe file the launcher checks under <GameDir>/ (max-depth 2) before
+# starting; if absent OnionOS shows a "missing data" toast instead of
+# launching a binary that would crash on fopen. Dane_02.dta is the
+# canonical probe the engine itself uses to confirm the data root.
+GameDataFile="Dane_02.dta"
+
+# The engine drives SDL_AudioDevice directly, so OnionOS' shared
+# audioserver has to be released before launch.
+KillAudioserver=1
+
+# 640x480 8-bpp + 22 kHz mixer is light — no CPU governor bump needed.
+PerformanceMode=0
+
+Arguments=""
+
+/mnt/SDCARD/Emu/PORTS/launch_standalone.sh \
+    "$GameName" "$GameDir" "$GameExecutable" \
+    "$Arguments" "$GameDataFile" \
+    "$KillAudioserver" "$PerformanceMode"
+SHORTCUT
+chmod +x "$shortcuts_dir/Wacki.notfound"
+
+# Short install README at the archive root so the user knows what to
+# do with the zip even without reaching the project README.
+cat > "$stage/README.txt" <<'README'
+Wacki — port silnika dla Miyoo Mini Plus (i pin-kompatybilnych).
+
+Instalacja (OnionOS):
+  1. Rozpakuj zawartosc tego archiwum w glownym katalogu karty SD.
+     Folder Roms/ z archiwum powinien zostac scalony z istniejacym
+     Roms/ na karcie.
+  2. Skopiuj pliki Dane_*.dta z oryginalnej plyty do:
+        Roms/PORTS/Games/Wacki/data/
+  3. Wlacz konsole. W menu Ports → Adventure → Wacki.
+
+Wymaga OnionOS 4.2 lub nowszego.
 README
 
-# zip up — preserves permissions (-X strips macOS metadata)
+# Zip from inside stage/ so the archive's top entries are Roms/ and
+# README.txt — extracting at SD root then merges Roms/ correctly.
 mkdir -p "$(dirname "$out")"
-(cd "$stage" && zip -rXq "$OLDPWD/$out" Wacki.pak)
+# Resolve to an absolute path before chdir'ing into stage/.
+case "$out" in
+    /*) out_abs="$out" ;;
+    *)  out_abs="$PWD/$out" ;;
+esac
+# Drop any pre-existing zip so we don't append into a stale archive
+# (zip merges by default; that'd leave old layout entries behind).
+rm -f "$out_abs"
+(cd "$stage" && zip -rXq "$out_abs" Roms README.txt)
 
 echo "[miyoo] packed → $out"
+unzip -l "$out"
 ls -lh "$out"

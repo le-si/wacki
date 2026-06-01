@@ -34,8 +34,11 @@ Wspierane platformy:
 - macOS (Apple Silicon)
 - Linux x86_64
 - Windows 10/11 x86_64
-- Miyoo Mini Plus oraz kompatybilne handheldy (Anbernic RG35XX,
-  Powkiddy RGB30 i pozostałe oparte na SoC SigmaStar SSD20x)
+- Miyoo Mini / Miyoo Mini Plus z OnionOS (gotowe archiwum
+  instalacyjne w sekcji Releases)
+- Inne handheldy oparte na SoC SigmaStar SSD20x (Anbernic RG35XX,
+  Powkiddy RGB30) — wymagana ręczna integracja z launcher'em
+  używanego firmware'u
 
 ## Uruchomienie
 
@@ -56,14 +59,23 @@ Wielkość liter w nazwach plików nie ma znaczenia.
 
 ### Miyoo Mini Plus i pokrewne handheldy
 
-Pobierz archiwum `wacki-miyoo.zip` z sekcji Releases. W środku
-znajduje się katalog `Wacki.pak/`:
+Wersja dla urządzeń handheld jest zgodna ze standardem OnionOS Ports.
+Pobierz archiwum `wacki-miyoo.zip` z sekcji Releases, a następnie:
 
-1. Do `Wacki.pak/data/` skopiuj pliki `Dane_*.dta`.
-2. Skopiuj cały katalog `Wacki.pak/` na kartę pamięci urządzenia:
-   - OnionOS — pod `/Apps/`
-   - oryginalne firmware — pod `/App/`
-3. Uruchom `Wacki` z menu launchera.
+1. Rozpakuj zawartość archiwum bezpośrednio w katalogu głównym karty
+   pamięci urządzenia. Folder `Roms/` z archiwum scali się
+   z istniejącym `Roms/` na karcie.
+2. Skopiuj pliki `Dane_*.dta` z oryginalnej płyty do katalogu:
+
+   ```
+   Roms/PORTS/Games/Wacki/data/
+   ```
+
+3. Włóż kartę, włącz urządzenie. W menu wybierz **Ports → Adventure
+   → Wacki**.
+
+Wymagane jest OnionOS 4.2 lub nowsze. Stock firmware nie jest
+wspierane (różni się układ katalogów i mechanizm uruchamiania portów).
 
 ## Sterowanie
 
