@@ -59,4 +59,17 @@ int  SDL_SetPaletteColors(SDL_Palette *palette, const SDL_Color *colors,
 int  SDL_SaveBMP(SDL_Surface *surface, const char *file);
 void SDL_FreeSurface(SDL_Surface *surface);
 
+/* ---- audio types + functions used by audio/sfx.c when it's linked
+ * into the test binary. Concrete typedefs because mixer_internal.h
+ * uses them in field types (Uint8 *, Uint32, SDL_AudioDeviceID), and
+ * SDL_LockAudioDevice / SDL_UnlockAudioDevice need declarations so
+ * sfx.c compiles. Implementations are no-op stubs in
+ * tests/test_engine_stubs.c. */
+typedef uint8_t  Uint8;
+typedef uint32_t Uint32;
+typedef uint32_t SDL_AudioDeviceID;
+
+void SDL_LockAudioDevice  (SDL_AudioDeviceID dev);
+void SDL_UnlockAudioDevice(SDL_AudioDeviceID dev);
+
 #endif

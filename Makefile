@@ -239,7 +239,7 @@ TEST_SRCS = \
 	tests/test_panel_hit_test.c    tests/test_click_hit_test.c \
 	tests/test_per_entity_vm_real.c                            \
 	tests/test_click_queue.c       tests/test_update_registration.c \
-	tests/test_ent_ptr_intern.c                                \
+	tests/test_ent_ptr_intern.c    tests/test_sampl_parser.c   \
 	tests/test_engine_stubs.c
 
 TEST_ENGINE_SRCS = \
@@ -254,7 +254,7 @@ TEST_ENGINE_SRCS = \
 	src/scene/click_queue.c src/scene/hit_test.c src/scene/mask_list.c \
 	src/scene/navigation.c src/scene/actor_walk.c src/scene/stage.c \
 	src/scene/bg_mask.c src/scene/spawn.c src/scene/komnata.c     \
-	src/audio/sound_queue.c                                       \
+	src/audio/sound_queue.c   src/audio/sfx.c                    \
 	src/script_bridge/palette.c src/script_bridge/entity.c        \
 	src/text/balloon.c src/text/dialog.c                          \
 	src/anim/resolver.c                                           \

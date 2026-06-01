@@ -71,12 +71,42 @@ void PlatformPumpEvents(void) {}
 int g_stub_should_quit = 0;
 int  PlatformShouldQuit(void) { return g_stub_should_quit; }
 
-/* ---- audio.c stubs -------------------------------------------------- */
+/* ---- audio.c stubs -------------------------------------------------- *
+ *
+ * src/audio/sfx.c IS linked into the test binary (so tests can hit
+ * ParseSamplTagsForKomnata, ResetDynamicSfxTable, TriggerFrameSfx,
+ * StopAllSfxForAsset etc.). Its dependencies on audio.c — the mixer
+ * device, channel array, lock/unlock — are stubbed here as no-ops.
+ *
+ * Audio device + channels: zero-init so sfx.c's replay-guard reads
+ * find inactive channels.
+ *
+ * mixer_ensure_open returns 0 → PlaySfxPannedAndGetChannel bails before
+ * touching the device, which is exactly what we want under tests. */
 
-void PlaySfx(const char *name)                       { (void)name; }
-void StopAllSfxForAsset(AnimAsset *a)                { (void)a; }
-void ResetDynamicSfxTable(void)                       {}
-void ResetFrameSfxState(void)                         {}
+#include "../src/audio/mixer_internal.h"
+
+SDL_AudioDeviceID  s_mix_dev = 0;
+struct MixChannel  s_mix[MIX_CHANNEL_COUNT];
+
+/* Defined in audio.c, used by sfx.c gates. With mixer_ensure_open
+ * returning 0 these never gate anything meaningful — sfx_handle_end_
+ * frames and the parser don't read them at all — but the symbols
+ * need to resolve at link time. */
+int g_audio_sfx_enabled   = 1;
+int g_audio_sound_enabled = 1;
+
+int  mixer_ensure_open(void)                          { return 0; }
+int  mixer_load_wav(const char *n, Uint8 **buf, Uint32 *len)
+{ (void)n; if (buf) *buf = NULL; if (len) *len = 0; return 0; }
+void mixer_assign(int idx, Uint8 *buf, Uint32 len, int loop,
+                  const char *name)
+{ (void)idx; (void)buf; (void)len; (void)loop; (void)name; }
+void mixer_stop_channel(int idx)                      { (void)idx; }
+
+void SDL_LockAudioDevice  (SDL_AudioDeviceID d)       { (void)d; }
+void SDL_UnlockAudioDevice(SDL_AudioDeviceID d)       { (void)d; }
+
 void StopMenuMusic(void)                              {}
 uint32_t PlayDialogLine(const char *wav)              { (void)wav; return 0; }
 void StopDialogLine(void)                             {}
@@ -90,8 +120,9 @@ int LoadStage(uint16_t stage)         { (void)stage; return 1; }
 
 /* From game.c — stubs.c LoadKomnata calls these. */
 void LoadKomnataScene(uint16_t id)    { (void)id; }
-void ParseSamplTagsForKomnata(const uint8_t *start, const uint8_t *end)
-{ (void)start; (void)end; }
+/* ParseSamplTagsForKomnata is now provided by the real audio/sfx.c
+ * linked into TEST_ENGINE_SRCS — tests can exercise the [sampl] parser
+ * for real (see tests/test_sampl_parser.c). */
 
 /* ScriptGoToKomnata — stubs.c provides production version. Tests that
  * want to capture the call check g_cur_komnata side-effect instead.
@@ -247,9 +278,7 @@ int paint_rawb_pic(const void *blob, uint32_t size, int as_overlay)
 /* is_walkable_at — game.c provides. actor.c walker checks walkability. */
 int is_walkable_at(int sx, int sy) { (void)sx; (void)sy; return 1; }
 
-/* TriggerFrameSfx — stubs.c provides? Actually audio.c. */
-void TriggerFrameSfx(AnimAsset *atlas, uint16_t frame, uint16_t entity_id)
-{ (void)atlas; (void)frame; (void)entity_id; }
+/* TriggerFrameSfx — real implementation linked from audio/sfx.c. */
 
 /* Scene BG raw — game.c provides. actor.c walk-behind path references. */
 const void *g_scene_bg_raw = NULL;
