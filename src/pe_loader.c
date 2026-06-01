@@ -62,6 +62,14 @@ static uint32_t  g_pe_image_base = 0;
 
 /* ---- embedded-slice lookup --------------------------------------- */
 
+/* PE VA range of the original WACKI.EXE — image base + the highest
+ * RVA the .rsrc trailer ends at. Used by the canary below to detect
+ * reads that land inside the original PE but outside the kept slices
+ * (= `.text`, `.idata`, `.rsrc` — none of which the engine should
+ * ever touch in a healthy run). */
+#define ORIGINAL_PE_VA_LOW   0x00400000u
+#define ORIGINAL_PE_VA_HIGH  0x0047ce00u
+
 static const void *embedded_read(uint32_t va)
 {
     for (int i = 0; i < g_wacki_pe_slice_count; ++i) {
@@ -74,6 +82,24 @@ static const void *embedded_read(uint32_t va)
             return NULL;
         }
         return &g_wacki_pe_blob[s->blob_off + off_in_slice];
+    }
+    /* Canary: a VA inside the original PE but outside both kept
+     * slices means something tried to read .text / .idata / .rsrc.
+     * The slice design ASSUMES this never happens; warn loudly once
+     * so the next regression is visible at boot. */
+    if (g_wacki_pe_slice_count > 0 &&
+        va >= ORIGINAL_PE_VA_LOW && va < ORIGINAL_PE_VA_HIGH)
+    {
+        static int s_warned = 0;
+        if (!s_warned) {
+            s_warned = 1;
+            fprintf(stderr,
+                    "[pe] WARN: read 0x%08X falls outside .rdata/.data "
+                    "slices (likely .text/.idata/.rsrc). The embedded "
+                    "blob was built assuming the engine never touches "
+                    "these sections — investigate.\n",
+                    va);
+        }
     }
     return NULL;
 }
