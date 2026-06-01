@@ -2,6 +2,28 @@
 
 CC       ?= cc
 SDL2_CFG ?= sdl2-config
+
+# ---- cross-compile knobs ------------------------------------------------- *
+#
+# TARGET=miyoo cross-compiles for Miyoo Mini Plus and pin-compatible
+# handhelds (Cortex-A7 armv7l, hardfloat, NEON). Used together with a
+# CROSS_COMPILE prefix:
+#
+#   make TARGET=miyoo CROSS_COMPILE=arm-linux-gnueabihf-
+#
+# In practice you run it through tools/build-miyoo.sh which sets up the
+# union-miyoomini-toolchain Docker image with the right sdl2-config.
+TARGET         ?=
+CROSS_COMPILE  ?=
+# HOSTCC is the compiler for build-time tools (embed-pe-data) which
+# MUST run on the build machine, not the target. When cross-compiling
+# we still need a host gcc/cc to produce a runnable code generator;
+# default to whatever cc resolved to before CROSS_COMPILE overrode it.
+HOSTCC         ?= cc
+ifneq ($(CROSS_COMPILE),)
+    CC := $(CROSS_COMPILE)gcc
+endif
+
 # Default build: release-ish with all warnings. -Wpedantic enabled —
 # the two GNU extensions we use intentionally (typeof, statement-exprs)
 # are suppressed via -Wno-language-extension-token so the build stays
@@ -11,6 +33,19 @@ CFLAGS   ?= -O2 -Wall -Wextra -Wpedantic \
             -Wno-language-extension-token \
             -fno-strict-aliasing \
             -std=gnu99 -I include
+
+# Miyoo Mini Plus tunings: Cortex-A7 + NEON + hardfloat. Same ABI as
+# Anbernic RG35XX and other SigmaStar SSD20x-based handhelds. Don't
+# enable LTO here — the Miyoo toolchain's ld + linker plugins have
+# been known to mis-emit thumb thunks under -flto. Section GC + -Os
+# still gets us 90% of the size win.
+ifeq ($(TARGET),miyoo)
+    CFLAGS  += -mcpu=cortex-a7 -mfpu=neon -mfloat-abi=hard \
+               -DWACKI_HANDHELD
+    BIN_NAME := wacki-miyoo
+else
+    BIN_NAME := wacki
+endif
 # NOTE: -fno-strict-aliasing is REQUIRED. The Entity struct is accessed
 # through multiple type-punned aliases — script writes `*(int32_t *)(eb +
 # 0x48)` and same memory is read as `*(int16_t *)(eb + 0x4A)` (upper 16
@@ -77,7 +112,15 @@ endif
 #
 # Always on for STATIC_SDL2=1 (release path); never on for the
 # default dev build (faster compile, easier to debug).
-ifeq ($(STATIC_SDL2),1)
+# Size opts apply to STATIC_SDL2=1 (release artefact) AND TARGET=miyoo
+# (always, since 128 MB RAM + ~16 MB free for app on Miyoo Mini Plus
+# means every kB counts even with dynamic SDL2). Miyoo also skips
+# -flto — the union toolchain's ld + linker plugins have been known
+# to mis-emit thumb thunks under -flto.
+ifeq ($(TARGET),miyoo)
+    CFLAGS_SIZE  := -Os -ffunction-sections -fdata-sections
+    LDFLAGS_SIZE := -Wl,--gc-sections
+else ifeq ($(STATIC_SDL2),1)
     CFLAGS_SIZE := -Os -ffunction-sections -fdata-sections -flto
     UNAME_S := $(shell uname -s 2>/dev/null)
     ifeq ($(OS),Windows_NT)
@@ -120,8 +163,12 @@ EMBEDDED_PE_SRC = src/embedded_wacki_pe.c
 EMBEDDED_PE_BIN = data/WACKI.EXE
 EMBED_PE_TOOL   = $(DIST)/embed-pe-data$(EXE)
 
+# Built with HOSTCC because this tool runs at build time on the build
+# machine; cross-compiling it for the target would mean trying to
+# qemu it (or worse, run an ARM binary natively on x86_64) every
+# time the embedded PE source needs regenerating.
 $(EMBED_PE_TOOL): tools/embed-pe-data.c | $(DIST)
-	$(CC) $(CFLAGS) -o $@ $<
+	$(HOSTCC) -O2 -Wall -I include -o $@ $<
 
 $(EMBEDDED_PE_SRC): $(EMBEDDED_PE_BIN) $(EMBED_PE_TOOL)
 	$(EMBED_PE_TOOL) $(EMBEDDED_PE_BIN) $(EMBEDDED_PE_SRC)
@@ -228,12 +275,19 @@ TEST_CFLAGS = -O2 -Wall -Wextra -Wpedantic \
               -std=gnu11 -I tests/sdl_stub -I include -I tests
 
 # ---- targets ----------------------------------------------------------------
-.PHONY: all engine tools clean run debug test
+.PHONY: all engine tools clean run debug test miyoo
 all: engine tools
 
-engine: $(DIST)/wacki$(EXE)
-$(DIST)/wacki$(EXE): $(ENGINE_SRCS) | $(DIST)
+engine: $(DIST)/$(BIN_NAME)$(EXE)
+$(DIST)/$(BIN_NAME)$(EXE): $(ENGINE_SRCS) | $(DIST)
 	$(CC) $(CFLAGS) $(CFLAGS_SIZE) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(SDL_LIB) $(LDFLAGS_STATIC) $(LDFLAGS_SIZE)
+
+# Convenience target: build through the union-miyoomini-toolchain
+# Docker image so callers don't need a host-installed ARM cross compiler.
+# Inside the container sdl2-config is in PATH and points at the cross-
+# built static SDL2 the toolchain ships with.
+miyoo:
+	./tools/build-miyoo.sh
 
 # Debug build with sanitizers — separate binary so the release build
 # stays untouched. Run via $(DIST)/wacki-debug --headless for CI fuzz
@@ -251,8 +305,8 @@ $(DIST)/dta-extract$(EXE): $(TOOL_SRCS_EXTRACT) | $(DIST)
 $(DIST)/pkv2-depack$(EXE): $(TOOL_SRCS_PKV2) | $(DIST)
 	$(CC) $(CFLAGS) -o $@ $(TOOL_SRCS_PKV2)
 
-run: $(DIST)/wacki$(EXE)
-	$(DIST)/wacki$(EXE)
+run: $(DIST)/$(BIN_NAME)$(EXE)
+	$(DIST)/$(BIN_NAME)$(EXE)
 
 # Build + run unit tests. Exit non-zero if any test fails.
 test: $(DIST)/run-tests$(EXE)

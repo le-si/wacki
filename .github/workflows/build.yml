@@ -250,13 +250,61 @@ jobs:
           path: ${{ matrix.artifact }}.${{ matrix.archive_ext }}
           if-no-files-found: error
 
+  # ---- Miyoo Mini Plus (and pin-compatible handhelds) -------------
+  # Separate job because the build runs entirely inside the
+  # union-miyoomini-toolchain Docker image — no host SDL2 build, no
+  # per-OS conditionals to thread through the main matrix.
+  miyoo:
+    name: Miyoo Mini Plus (armv7l)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch WACKI.EXE
+        env:
+          WACKI_EXE_URL: ${{ secrets.WACKI_EXE_URL }}
+        run: |
+          if [ -z "${WACKI_EXE_URL:-}" ]; then
+            echo "::error::WACKI_EXE_URL secret is empty"
+            exit 1
+          fi
+          mkdir -p data
+          curl -fsSL --retry 3 --retry-delay 2 \
+               "$WACKI_EXE_URL" -o data/WACKI.EXE
+          ls -la data/WACKI.EXE
+
+      - name: Build engine (Docker / union-miyoomini-toolchain)
+        run: ./tools/build-miyoo.sh
+
+      - name: Strip + log size
+        run: |
+          # Use the same toolchain image for `strip` so the ARM ELF is
+          # parsed correctly (host `strip` rejects unknown arch).
+          IMG="${MIYOO_DOCKER_IMAGE:-shauninman/union-miyoomini-toolchain:latest}"
+          docker run --rm -v "$PWD:/root/workspace" -w /root/workspace "$IMG" \
+            arm-linux-gnueabihf-strip --strip-all dist/wacki-miyoo
+          ls -lh dist/wacki-miyoo
+
+      - name: Package .pak
+        run: ./tools/pack-miyoo.sh dist/wacki-miyoo.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wacki-miyoo
+          path: dist/wacki-miyoo.zip
+          if-no-files-found: error
+
   # ---- release -----------------------------------------------------
-  # Only fires on tag push (`v*`). Pulls the three per-platform
-  # archives from the matrix build above and attaches them to a
+  # Only fires on tag push (`v*`). Pulls the per-platform archives
+  # from the matrix build + the Miyoo job and attaches them to a
   # GitHub Release named after the tag.
   release:
     name: GitHub Release
-    needs: build
+    needs: [build, miyoo]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

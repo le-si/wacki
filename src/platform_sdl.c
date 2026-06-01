@@ -59,6 +59,18 @@
  * window). */
 #define DEFAULT_SCALE_FACTOR        1
 
+/* Virtual cursor — d-pad / arrow-keys drive a fake mouse so the game
+ * is playable on handhelds (Miyoo Mini Plus and friends, where the
+ * d-pad arrives as SDLK_UP/DOWN/LEFT/RIGHT and the A/B face buttons
+ * arrive as SDLK_SPACE/SDLK_LCTRL). Always-on additive: on a desktop
+ * with a real mouse the keyboard path simply doesn't fire; on a
+ * handheld it's the only input source. The acceleration curve
+ * mirrors what OnionOS apps do — slow at first so single-pixel hit
+ * targets stay reachable, then ramps up. */
+#define VCUR_BASE_PIXELS_PER_TICK   1
+#define VCUR_MAX_PIXELS_PER_TICK    8
+#define VCUR_ACCEL_TICKS            10    /* ticks to reach max speed */
+
 /* ---- module state ------------------------------------------------- */
 
 static SDL_Window   *s_win  = NULL;
@@ -70,6 +82,11 @@ static uint32_t      s_pixels32[640 * 480];
 
 static uint8_t       s_typed_q[TYPED_QUEUE_SZ];
 static int           s_typed_head = 0, s_typed_tail = 0;
+
+/* Virtual cursor state — see VCUR_* constants above. */
+static int           s_vcur_x = 320, s_vcur_y = 240;
+static int           s_vcur_initialized = 0;
+static int           s_vcur_hold_ticks = 0;     /* d-pad-held duration */
 
 extern int         g_headless;
 extern int         g_scale_factor;
@@ -229,6 +246,8 @@ void PlatformPresent(const uint8_t *shadow,
 /* Per-event-type handlers — each takes the SDL_Event and returns
  * nothing. PlatformPumpEvents dispatches on ev.type. */
 
+static int dpad_button_to_click(SDL_Keycode sym);
+
 static void handle_keydown(const SDL_Event *ev)
 {
     SDL_Keycode sym = ev->key.keysym.sym;
@@ -252,6 +271,12 @@ static void handle_keydown(const SDL_Event *ev)
         PlatformPushTypedChar(ASCII_BACKSPACE);
     if (sym == SDLK_RETURN || sym == SDLK_KP_ENTER)
         PlatformPushTypedChar(ASCII_ENTER);
+
+    /* Handheld face buttons (Space=A, LCtrl=B) latch as mouse clicks
+     * so the d-pad-driven virtual cursor is fully usable without a
+     * real mouse. On a desktop these keys aren't bound to anything
+     * else, so the additive behaviour is invisible. */
+    dpad_button_to_click(sym);
 }
 
 static void handle_textinput(const SDL_Event *ev)
@@ -278,6 +303,70 @@ static void handle_mouse_button_down(const SDL_Event *ev)
 {
     if (ev->button.button == SDL_BUTTON_LEFT)  g_lmb_clicked = 1;
     if (ev->button.button == SDL_BUTTON_RIGHT) g_rmb_clicked = 1;
+}
+
+/* ---- virtual cursor (handheld d-pad → mouse) -------------------- *
+ *
+ * Polled once per PlatformPumpEvents pass. Reads SDL's current keyboard
+ * snapshot (not events — we need REPEAT-style "is the key held right
+ * now" semantics so the cursor glides while the d-pad stays pressed).
+ * Each tick adds dx/dy to s_mouse_x/y; speed ramps from 1 px/tick to
+ * 8 px/tick over ~10 ticks of continuous hold, then plateaus. Release
+ * resets the ramp so the next tap is precise again. */
+static void poll_virtual_cursor(void)
+{
+    extern int16_t s_mouse_x, s_mouse_y;
+
+    if (!s_vcur_initialized) {
+        /* Seed from real-mouse position so we don't snap on first
+         * d-pad press if the user had moved the real cursor. */
+        s_vcur_x = s_mouse_x ? s_mouse_x : s_w / 2;
+        s_vcur_y = s_mouse_y ? s_mouse_y : s_h / 2;
+        s_vcur_initialized = 1;
+    }
+
+    const uint8_t *ks = SDL_GetKeyboardState(NULL);
+    int dx = (int)ks[SDL_SCANCODE_RIGHT] - (int)ks[SDL_SCANCODE_LEFT];
+    int dy = (int)ks[SDL_SCANCODE_DOWN]  - (int)ks[SDL_SCANCODE_UP];
+
+    if (dx == 0 && dy == 0) {
+        s_vcur_hold_ticks = 0;
+        return;
+    }
+
+    int speed = VCUR_BASE_PIXELS_PER_TICK +
+        (s_vcur_hold_ticks * (VCUR_MAX_PIXELS_PER_TICK - VCUR_BASE_PIXELS_PER_TICK))
+        / VCUR_ACCEL_TICKS;
+    if (speed > VCUR_MAX_PIXELS_PER_TICK) speed = VCUR_MAX_PIXELS_PER_TICK;
+
+    s_vcur_x += dx * speed;
+    s_vcur_y += dy * speed;
+    if (s_vcur_x < 0)        s_vcur_x = 0;
+    if (s_vcur_y < 0)        s_vcur_y = 0;
+    if (s_vcur_x >= s_w)     s_vcur_x = s_w - 1;
+    if (s_vcur_y >= s_h)     s_vcur_y = s_h - 1;
+
+    s_mouse_x = (int16_t)s_vcur_x;
+    s_mouse_y = (int16_t)s_vcur_y;
+    ++s_vcur_hold_ticks;
+}
+
+/* Map face-button keysym → mouse button latch. Returns 1 if handled,
+ * 0 if the keysym wasn't a recognised button. Called from
+ * handle_keydown so a regular keyboard with Space/LCtrl also drives
+ * the click latches, not just the handheld face buttons. */
+static int dpad_button_to_click(SDL_Keycode sym)
+{
+    switch (sym) {
+    case SDLK_SPACE:      /* Miyoo A button → LMB */
+        g_lmb_clicked = 1;
+        return 1;
+    case SDLK_LCTRL:      /* Miyoo B button → RMB */
+        g_rmb_clicked = 1;
+        return 1;
+    default:
+        return 0;
+    }
 }
 
 void PlatformPumpEvents(void)
@@ -320,6 +409,11 @@ void PlatformPumpEvents(void)
             break;
         }
     }
+
+    /* Drive the virtual cursor AFTER draining events so a real
+     * mouse-motion this frame doesn't get clobbered by the d-pad
+     * snapshot. If the d-pad isn't held, this is a cheap no-op. */
+    if (!g_headless) poll_virtual_cursor();
 }
 
 int PlatformShouldQuit(void) { return s_quit; }
