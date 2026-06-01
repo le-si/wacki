@@ -70,18 +70,33 @@ static uint32_t  g_pe_image_base = 0;
 #define ORIGINAL_PE_VA_LOW   0x00400000u
 #define ORIGINAL_PE_VA_HIGH  0x0047ce00u
 
+/* Zero page for BSS-tail reads. The original engine's runtime image
+ * zero-initialises the .data section past raw_size; the bytecode VM
+ * reads from those globals (verb tables walk the BSS-resident click
+ * state, some scripts grep dialog-stack BSS fields, etc.) and
+ * expects to see zeros. Returning NULL instead crashes the caller's
+ * deref (observed bus error on a stage-1 panel-verb click after
+ * commit 7066546).
+ *
+ * Any single bytecode read is bounded by a struct field — strings,
+ * 4-byte pointers, small fixed structs — so 16 KB is plenty for a
+ * worst-case wide read. Multiple BSS VAs all return the same page
+ * pointer, but that's fine: the bytecode operates on u32 VA values
+ * (not host pointers), and a read of N zero bytes is correct
+ * regardless of which BSS VA produced the page. */
+static const uint8_t s_bss_zero_page[16 * 1024] = {0};
+
 static const void *embedded_read(uint32_t va)
 {
     for (int i = 0; i < g_wacki_pe_slice_count; ++i) {
         const PeSlice *s = &g_wacki_pe_slices[i];
         if (va < s->va_start || va >= s->va_end) continue;
         uint32_t off_in_slice = va - s->va_start;
-        if (off_in_slice >= s->raw_size) {
-            /* BSS tail — unmapped in the embedded blob. The engine
-             * never references this in practice. */
-            return NULL;
+        if (off_in_slice < s->raw_size) {
+            return &g_wacki_pe_blob[s->blob_off + off_in_slice];
         }
-        return &g_wacki_pe_blob[s->blob_off + off_in_slice];
+        /* BSS tail of this slice — see s_bss_zero_page note above. */
+        return s_bss_zero_page;
     }
     /* Canary: a VA inside the original PE but outside both kept
      * slices means something tried to read .text / .idata / .rsrc.
