@@ -65,16 +65,42 @@ static void audio_ensure(uint32_t sample_rate, uint16_t channels, uint16_t bits)
     want.freq     = (int)sample_rate;
     want.format   = (bits == 8) ? AUDIO_U8 : AUDIO_S16LSB;
     want.channels = (Uint8)channels;
-    want.samples  = 1024;
+    /* 4096-frame buffer (~185 ms at 22 kHz) keeps the device fed
+     * between AVI audio chunks, which arrive every video frame —
+     * intro Dane_10.dta runs at 10 fps = 100 ms per chunk. With the
+     * old 1024 sample (~46 ms) buffer the device underruns midway
+     * through every gap → audible chopping. Larger is safer on the
+     * Miyoo/mmiyoo backend which can't switch buffers on the fly. */
+    want.samples  = 4096;
+    /* SDL_AUDIO_ALLOW_CHANNELS_CHANGE + SAMPLES_CHANGE — needed for
+     * mmiyoo which can only do mono and 1024-sample buffers. Without
+     * the channel flag stereo AVIs fail to open entirely; without the
+     * sample flag mmiyoo silently clamps and the audio thread fires
+     * twice as often as the calling code expects. */
     s_audio_dev = SDL_OpenAudioDevice(NULL, 0, &want, &s_audio_spec_cur,
-                                      SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+                                      SDL_AUDIO_ALLOW_FREQUENCY_CHANGE |
+                                      SDL_AUDIO_ALLOW_CHANNELS_CHANGE |
+                                      SDL_AUDIO_ALLOW_SAMPLES_CHANGE);
     if (!s_audio_dev) {
-        LOG_TRACE("audio", "SDL_OpenAudioDevice: %s", SDL_GetError());
+        LOG_INFO("audio", "SDL_OpenAudioDevice (avi): %s", SDL_GetError());
         return;
     }
     s_audio_open = 1;
     SDL_PauseAudioDevice(s_audio_dev, 0);
-    LOG_TRACE("audio", "%u Hz, %d ch, %d-bit", sample_rate, channels, bits);
+    LOG_INFO("audio", "AVI audio: %d Hz, %d ch, %d samples",
+             s_audio_spec_cur.freq, s_audio_spec_cur.channels,
+             s_audio_spec_cur.samples);
+}
+
+/* Release the AVI audio device. Called at end of playback so the
+ * mixer (audio.c) can take the single mmiyoo hardware slot. On a
+ * desktop with proper multi-device SDL this is just hygiene. */
+static void audio_release(void)
+{
+    if (!s_audio_open) return;
+    SDL_CloseAudioDevice(s_audio_dev);
+    s_audio_open = 0;
+    s_audio_dev = 0;
 }
 
 /* ---- RIFF / AVI FourCCs ------------------------------------------- */
@@ -327,6 +353,7 @@ int PlayFlicAviFile(const char *path)
         }
     }
     LOG_TRACE("avi", "%s end — %d frames decoded%s", path, frame_count, skipped ? " (skipped)" : "");
+    audio_release();
     avi_close(&c);
     return 1;
 }

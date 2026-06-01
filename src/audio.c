@@ -56,17 +56,33 @@ SDL_AudioDeviceID s_mix_dev = 0;
 static SDL_AudioSpec     s_mix_spec;
 struct MixChannel s_mix[MIX_CHANNEL_COUNT];
 
+/* Some embedded SDL2 backends (notably mmiyoo on Miyoo Mini Plus)
+ * only support mono output. We always mix internally in stereo for
+ * positional pan; if the backend ended up mono after the OpenAudio
+ * call, the callback downmixes L+R into a single channel at the
+ * very end. s_dev_chans tracks what we actually got. */
+#define MIX_MAX_FRAMES_PER_CB   4096
+static int      s_dev_chans = MIX_OUT_CHANS;
+static int16_t  s_mix_tmp[MIX_MAX_FRAMES_PER_CB * MIX_OUT_CHANS];
+
 /* Audio callback — fires on SDL's audio thread. Mix all active channels
- * into the output buffer with saturation clipping. */
+ * into a stereo intermediate, then write to the device buffer either
+ * as stereo (memcpy) or mono (L+R downmix) depending on what the
+ * backend gave us. */
 static void mixer_callback(void *userdata, Uint8 *stream, int len)
 {
     (void)userdata;
-    /* Start with silence. */
-    SDL_memset(stream, 0, (size_t)len);
-    int16_t *out       = (int16_t *)stream;
-    int      n_samples = len / 2;       /* S16 = 2 bytes per sample slot */
-    /* Each output frame is MIX_OUT_CHANS sample slots side-by-side. */
-    int      n_frames  = n_samples / MIX_OUT_CHANS;
+    /* len is in bytes. Convert to per-device-frame count given the
+     * actual channel count we negotiated. */
+    int dev_chans = s_dev_chans > 0 ? s_dev_chans : MIX_OUT_CHANS;
+    int n_samples = len / 2;          /* S16 = 2 bytes per sample slot */
+    int n_frames  = n_samples / dev_chans;
+    if (n_frames > MIX_MAX_FRAMES_PER_CB) n_frames = MIX_MAX_FRAMES_PER_CB;
+
+    /* Mix everything as stereo into the scratch buffer; positional pan
+     * applies cleanly regardless of what the device wants. */
+    int16_t *mix = s_mix_tmp;
+    SDL_memset(mix, 0, (size_t)(n_frames * MIX_OUT_CHANS * 2));
 
     for (int c = 0; c < MIX_CHANNEL_COUNT; ++c) {
         struct MixChannel *ch = &s_mix[c];
@@ -91,16 +107,41 @@ static void mixer_callback(void *userdata, Uint8 *stream, int len)
             int16_t sl = src[src_frame * 2 + 0];
             int16_t sr = src[src_frame * 2 + 1];
             ++src_frame;
-            int ml = (int)out[f * 2 + 0] + (sl * gain_l) / MIX_GAIN_IDENTITY;
-            int mr = (int)out[f * 2 + 1] + (sr * gain_r) / MIX_GAIN_IDENTITY;
+            int ml = (int)mix[f * 2 + 0] + (sl * gain_l) / MIX_GAIN_IDENTITY;
+            int mr = (int)mix[f * 2 + 1] + (sr * gain_r) / MIX_GAIN_IDENTITY;
             if (ml >  32767) ml =  32767;
             if (ml < -32768) ml = -32768;
             if (mr >  32767) mr =  32767;
             if (mr < -32768) mr = -32768;
-            out[f * 2 + 0] = (int16_t)ml;
-            out[f * 2 + 1] = (int16_t)mr;
+            mix[f * 2 + 0] = (int16_t)ml;
+            mix[f * 2 + 1] = (int16_t)mr;
         }
         ch->pos = src_frame * MIX_OUT_SAMPLE_BYTES;
+    }
+
+    /* Write to the device buffer in whatever channel layout we got. */
+    int16_t *out = (int16_t *)stream;
+    if (dev_chans == 1) {
+        /* Downmix L+R → 1 channel. Average rather than sum so a
+         * full-scale stereo pair doesn't clip on output. */
+        for (int f = 0; f < n_frames; ++f) {
+            int l = mix[f * 2 + 0];
+            int r = mix[f * 2 + 1];
+            out[f] = (int16_t)((l + r) / 2);
+        }
+    } else {
+        /* Native stereo (or higher — first 2 channels carry the mix,
+         * any extras stay silent from the memset above). */
+        if (dev_chans == 2) {
+            SDL_memcpy(out, mix, (size_t)(n_frames * 4));
+        } else {
+            for (int f = 0; f < n_frames; ++f) {
+                out[f * dev_chans + 0] = mix[f * 2 + 0];
+                out[f * dev_chans + 1] = mix[f * 2 + 1];
+                for (int x = 2; x < dev_chans; ++x)
+                    out[f * dev_chans + x] = 0;
+            }
+        }
     }
 }
 
@@ -116,13 +157,37 @@ int mixer_ensure_open(void)
     want.samples  = MIX_OPEN_SAMPLES;
     want.callback = mixer_callback;
     want.userdata = NULL;
-    s_mix_dev = SDL_OpenAudioDevice(NULL, 0, &want, &s_mix_spec, 0);
+    /* SDL_AUDIO_ALLOW_CHANNELS_CHANGE + SAMPLES_CHANGE — embedded SDL2
+     * backends (mmiyoo on Miyoo Mini Plus) only do mono S16 at a fixed
+     * buffer size. With allowed_changes=0 SDL2 silently fails to set
+     * up its stereo→mono conversion stream and leaves the backend
+     * wedged in "device-already-open" state, so every subsequent
+     * SFX play retries and bounces off it. Allowing the channel +
+     * sample count to flex means we just take whatever we got; the
+     * callback downmixes if we ended up mono. Frequency stays pinned
+     * because every WAV is pre-converted to 22 050 Hz. */
+    s_mix_dev = SDL_OpenAudioDevice(NULL, 0, &want, &s_mix_spec,
+                                    SDL_AUDIO_ALLOW_CHANNELS_CHANGE |
+                                    SDL_AUDIO_ALLOW_SAMPLES_CHANGE);
     if (!s_mix_dev) {
-        LOG_TRACE("mixer", "SDL_OpenAudioDevice failed: %s", SDL_GetError());
+        /* Log only the first attempt — on Miyoo / OnionOS the
+         * audioserver kill is async, so the first dozen-ish attempts
+         * race the dying process and fail with "Audio device already
+         * open". Repeating the line each frame just floods wacki.log. */
+        static int s_logged_open_failure = 0;
+        if (!s_logged_open_failure) {
+            LOG_INFO("mixer", "SDL_OpenAudioDevice failed: %s "
+                              "(will retry silently on next play)",
+                     SDL_GetError());
+            s_logged_open_failure = 1;
+        }
         return 0;
     }
+    s_dev_chans = s_mix_spec.channels;
     SDL_PauseAudioDevice(s_mix_dev, 0);   /* unpause */
-    LOG_TRACE("mixer", "open: %d Hz, %d ch, %d-bit (8 channels)", s_mix_spec.freq, s_mix_spec.channels, SDL_AUDIO_BITSIZE(s_mix_spec.format));
+    LOG_INFO("mixer", "opened: %d Hz, %d ch, %d-bit, %d samples",
+             s_mix_spec.freq, s_mix_spec.channels,
+             SDL_AUDIO_BITSIZE(s_mix_spec.format), s_mix_spec.samples);
     return 1;
 }
 
@@ -227,11 +292,19 @@ int mixer_load_wav(const char *name, Uint8 **out_buf, Uint32 *out_len)
     Uint8 *native_buf = NULL;
     Uint32 native_len = 0;
 
+    /* Try the mounted DTA archive FIRST. Every WAV the game references
+     * lives there — falling through the filesystem paths first means
+     * each SFX play does 6 failed fopen() syscalls before reaching the
+     * archive. On a slow SD card (Miyoo Mini Plus) that's 30+ ms of
+     * dead time per play, plus a flood of "Couldn't open ..." prints
+     * from SDL2's RWops layer. Filesystem fallback stays for dev
+     * overrides — drop a custom WAV next to the binary or in ./data/
+     * and it'll be picked up if the archive misses. */
     int ok = 0;
+    if (!ok) ok = try_load_wav_from_dta(name, &native, &native_buf, &native_len);
     if (!ok) ok = try_load_wav_at(NULL,      name, &native, &native_buf, &native_len);
     if (!ok) ok = try_load_wav_at(g_data_root, name, &native, &native_buf, &native_len);
     if (!ok) ok = try_load_wav_at("./data",  name, &native, &native_buf, &native_len);
-    if (!ok) ok = try_load_wav_from_dta(name, &native, &native_buf, &native_len);
     if (!ok) {
         *out_buf = NULL; *out_len = 0;
         return 0;
