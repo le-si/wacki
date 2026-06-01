@@ -14,6 +14,23 @@
 #include <string.h>
 #include <stdio.h>
 
+/* Windows rename() refuses to overwrite an existing destination, which
+ * breaks the tmp+rename atomic-write pattern below. MoveFileExA with
+ * MOVEFILE_REPLACE_EXISTING is the correct equivalent of POSIX rename. */
+#ifdef _WIN32
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+static int atomic_replace(const char *from, const char *to)
+{
+    return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING) ? 0 : -1;
+}
+#else
+static int atomic_replace(const char *from, const char *to)
+{
+    return rename(from, to);
+}
+#endif
+
 WackiSaveFile g_save;       /* in-memory image, paged to disk by WriteSaveFile */
 
 /* World-state default template — copied into every fresh slot at
@@ -121,7 +138,7 @@ void WriteSaveFile(void)
     }
     fflush(fp);
     fclose(fp);
-    if (rename(tmp_path, WACKI_SAVE_FILE) != 0) {
+    if (atomic_replace(tmp_path, WACKI_SAVE_FILE) != 0) {
         LOG_INFO("save", "rename(%s → %s) failed — keeping tmp", tmp_path, WACKI_SAVE_FILE);
     }
 }
