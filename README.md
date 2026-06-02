@@ -1,18 +1,27 @@
-# Wacki
+# Wacki: Kosmiczna rozgrywka
 
-A portable port of **Wacki** (1997) — a Polish point-and-click
-adventure. The game is in Polish, set in Poland, and was made in
-Poland; for that reason the rest of this README is in Polish too.
+A portable port of **Wacki: Kosmiczna rozgrywka** (1998) — a Polish
+point-and-click adventure. The game is in Polish, set in Poland, and
+was made in Poland; for that reason the rest of this README is in
+Polish too.
 
 ![Wacki](https://i.ytimg.com/vi/pVzsMB6r3hE/maxresdefault.jpg)
 
 ## O grze
 
-Wacki to polska przygodówka point-and-click z 1997 roku, której
-autorem jest Henryk Cygert. Akcja toczy się w realiach lat
-dziewięćdziesiątych w Polsce; sterujesz dwójką bohaterów (Ebek i
-Fjej), zbierasz przedmioty, rozmawiasz z napotkanymi postaciami i
-rozwiązujesz zagadki, aby przejść kolejne lokacje.
+**Wacki: Kosmiczna rozgrywka** to polska gra przygodowa typu
+point-and-click, wydana 1 lipca 1998 roku przez studio
+Seven Stars Multimedia na komputery z systemem Microsoft Windows.
+
+Akcja rozgrywa się na polskim osiedlu, gdzie dwaj nastolatkowie —
+Franc i Edek — spotykają kosmitę Aargha. Obcy prosi ich o pomoc
+w odnalezieniu części zagubionego urządzenia **ACME** (Atomowego
+Czasoprzestrzennego Modyfikatora Energii), które uległo rozpadowi.
+Gracz steruje dwoma bohaterami, eksplorując kolejne lokacje na
+osiedlu i rozwiązując zagadki — klika myszą na obiekty i postacie,
+zbiera przedmioty, prowadzi dialogi. Gra zawiera liczne elementy
+humorystyczne, często opierające się na polskiej kulturze i
+absurdalnych sytuacjach.
 
 Niniejszy projekt jest portem silnika gry — odtworzonym ze
 zdekompilowanej oryginalnej binarki `WACKI.EXE`. Repozytorium
@@ -186,5 +195,5 @@ są dystrybuowane wraz z tym repozytorium.
 
 ## Podziękowania
 
-- **Henryk Cygert** — autor oryginalnego silnika i projektu gry (1997)
+- **Seven Stars Multimedia** — twórcy oryginalnej gry (1998)
 - TopWare Interactive Polska — wydawca oryginalny
