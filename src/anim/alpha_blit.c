@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/anim/alpha_blit.c — alpha-plane scaled blit with RGB12
+ *
+ * src/anim/alpha_blit.c — alpha-plane scaled blit with RGB12
  * quantization.
  *
  * Used by per-entity VM for entities with flag 0x100 + 0x400 (alpha-

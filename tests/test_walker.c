@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_walker.c — fixed-point line-stepper algorithm.
+ *
+ * tests/test_walker.c — fixed-point line-stepper algorithm.
  *
  * CHARACTERIZATION TEST. Today's port has the walker step loop INLINED
  * inside FUN_004012E0 case 0x15/0x16 in `src/actor.c` (~lines 648-711),

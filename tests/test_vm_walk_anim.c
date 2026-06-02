@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_vm_walk_anim.c — actor walk + anim ops smoke tests.
+ *
+ * tests/test_vm_walk_anim.c — actor walk + anim ops smoke tests.
  *
  * Production stubs.c now linked → ScriptCallWalkMode/WalkTo/AttachProp
  * are exercised end-to-end. The previous dispatch-counter tests were

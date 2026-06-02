@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/audio/cutscene.c — AVI/FLIC cutscene playback shim.
+ *
+ * src/audio/cutscene.c — AVI/FLIC cutscene playback shim.
  *
  * The original engine drove MCI AVIVideo to play Dane_10.dta (intro),
  * Dane_14.dta (death), the per-stage outro AVIs, etc. Those files are

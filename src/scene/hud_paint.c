@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/scene/hud_paint.c — per-frame HUD overlay paint.
+ *
+ * src/scene/hud_paint.c — per-frame HUD overlay paint.
  *
  * Called once per frame from ProcessGameFrameTickInner, after the
  * scene render but before the cursor and back-buffer flush. Composites

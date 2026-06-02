@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_main.c — entry point. Runs every suite and prints a summary.
+ *
+ * tests/test_main.c — entry point. Runs every suite and prints a summary.
  *
  * Add a new suite:
  *  1. Add a `tests/test_<name>.c` defining `SUITE(<name>) { RUN_TEST(...); }`.

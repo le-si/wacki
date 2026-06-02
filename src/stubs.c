@@ -1,8 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/*
+ *
  * stubs.c — definitions for every global and helper that the rest of the
  * engine references through `extern` but whose full implementation we
  * deferred from the Ghidra reverse. Each stub:

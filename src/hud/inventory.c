@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/hud/inventory.c — player inventory + panel page rotation.
+ *
+ * src/hud/inventory.c — player inventory + panel page rotation.
  *
  * The player's inventory is a flat array of 60 verb_ids (`uint16_t`),
  * shared storage with the save-game scene snapshot (so saving a game

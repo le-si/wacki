@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/script_bridge/palette.c — palette fade script bridges.
+ *
+ * src/script_bridge/palette.c — palette fade script bridges.
  *
  * Three opcodes drive palette fades:
  *

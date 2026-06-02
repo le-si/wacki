@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/audio/sfx.c — frame-trigger SFX dispatch + Wacky.scr [sampl] parser.
+ *
+ * src/audio/sfx.c — frame-trigger SFX dispatch + Wacky.scr [sampl] parser.
  *
  * Drives the per-frame sound-trigger system. Every per-entity script
  * call to op 0x12 ADVANCE_FRAME hits the asset's [sampl] table (parsed

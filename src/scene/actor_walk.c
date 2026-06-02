@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/scene/actor_walk.c — blocking actor-walk dispatch.
+ *
+ * src/scene/actor_walk.c — blocking actor-walk dispatch.
  *
  * Script opcodes 0x10 (walk Ebek), 0x11 (walk Fjej), and 0x12 (walk
  * both) drive an actor to a target position synchronously — the

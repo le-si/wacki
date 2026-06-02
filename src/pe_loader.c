@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/pe_loader.c — PE-VA resolver, backed by an embedded slice table.
+ *
+ * src/pe_loader.c — PE-VA resolver, backed by an embedded slice table.
  *
  * The engine resolves original WACKI.EXE addresses via PeLoaderRead.
  * The default storage is a static `PeSlice[]` table generated at

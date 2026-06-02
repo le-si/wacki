@@ -1,8 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/*
+ *
  * pkv2-depack.c — standalone "PKv2" depacker (Henryk Cygert format).
  *
  * Build:  cc -O2 -o pkv2-depack pkv2-depack.c ../src/depack.c

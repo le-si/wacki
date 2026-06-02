@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_vm_with_pe.c — VM ops that require PE-loaded fixtures.
+ *
+ * tests/test_vm_with_pe.c — VM ops that require PE-loaded fixtures.
  *
  * These opcodes resolve operands via xlat_binary_ptr(VA), so their
  * "happy path" needs a PE image mapped with the right bytes at the

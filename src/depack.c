@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/depack.c — PKv2 (LZ77 + Shannon-Fano) decompressor.
+ *
+ * src/depack.c — PKv2 (LZ77 + Shannon-Fano) decompressor.
  *
  * Cygert's custom packer; the string "Depack routines by Henryk Cygert"
  * lives at PE offset 0x446038 in the original WACKI.EXE. Decoder walks

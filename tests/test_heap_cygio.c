@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_heap_cygio.c — heap.c + cygio.c thin wrappers.
+ *
+ * tests/test_heap_cygio.c — heap.c + cygio.c thin wrappers.
  *
  * Both files are minimal shims (xmalloc → malloc; fopen_cyg → fopen via
  * a CygFile handle). The tests are completeness smokes — they verify

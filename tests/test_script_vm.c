@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_script_vm.c — script bytecode format invariants.
+ *
+ * tests/test_script_vm.c — script bytecode format invariants.
  *
  * CHARACTERIZATION TEST. The real `RunScriptInterpreter` (src/script.c)
  * pulls in SDL.h, the audio mixer, the entity walker, dozens of

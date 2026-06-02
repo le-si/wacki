@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_save_io.c — Wacki.sav file I/O roundtrip.
+ *
+ * tests/test_save_io.c — Wacki.sav file I/O roundtrip.
  *
  * src/save.c uses fopen("Wacki.sav", "rb"/"wb") with a relative path
  * baked in via WACKI_SAVE_FILE. To test without polluting the project

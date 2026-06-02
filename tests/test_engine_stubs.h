@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_engine_stubs.h — capture-stub interface for VM tests.
+ *
+ * tests/test_engine_stubs.h — capture-stub interface for VM tests.
  *
  * Each ScriptCall* / FindEntityByVerbId / etc. stub in
  * test_engine_stubs.c bumps a counter and stores last-arg values.

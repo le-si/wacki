@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/audio/mixer_internal.h — private API shared between audio TUs.
+ *
+ * src/audio/mixer_internal.h — private API shared between audio TUs.
  *
  * NOT a public engine header — only audio modules (mixer, music, sfx,
  * dialog playback) include this. The struct + s_mix + s_mix_dev are

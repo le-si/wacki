@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/menu/chapter_select.c — sel_tlo.pic chapter-select UI.
+ *
+ * src/menu/chapter_select.c — sel_tlo.pic chapter-select UI.
  *
  * Shown when game_over_code == 3 (player finished a stage and needs to
  * pick the next chapter to play). Four stage buttons (id=0x12..0x15,

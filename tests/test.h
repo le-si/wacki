@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test.h — minimal header-only test framework for wacki-src.
+ *
+ * tests/test.h — minimal header-only test framework for wacki-src.
  *
  * Why custom (and not Unity / cmocka / criterion):
  *  - Zero external deps — same philosophy as the rest of the port

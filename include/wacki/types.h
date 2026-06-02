@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* include/wacki/types.h — core types + format constants.
+ *
+ * include/wacki/types.h — core types + format constants.
  *
  * Pulled out of include/wacki.h. The umbrella header still includes
  * us, so call sites continue to write `#include "wacki.h"`.

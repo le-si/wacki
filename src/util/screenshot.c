@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/util/screenshot.c — debug screenshot + missing-asset placeholder.
+ *
+ * src/util/screenshot.c — debug screenshot + missing-asset placeholder.
  *
  * Pressing 'B' in-game captures the current shadow back-buffer into a
  * BMP file (wac00000.bmp, wac00001.bmp, ...). The 8-bit indexed

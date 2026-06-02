@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_per_entity_vm.c — per-entity VM bytecode format (mock).
+ *
+ * tests/test_per_entity_vm.c — per-entity VM bytecode format (mock).
  *
  * CHARACTERIZATION TEST. The per-entity VM (`FUN_004012E0` /
  * `ExecEntityScript` in src/actor.c) drives every spawned entity's

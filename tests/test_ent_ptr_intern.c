@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_ent_ptr_intern.c — 64-bit pointer slot table.
+ *
+ * tests/test_ent_ptr_intern.c — 64-bit pointer slot table.
  *
  * Entity struct stores 4-byte slot IDs in pointer-typed fields (+0x28
  * atlas, +0x2C bytecode, +0x14 pixels, etc.) to preserve byte-faithful

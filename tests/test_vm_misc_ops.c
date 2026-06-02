@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_vm_misc_ops.c — remaining VM ops.
+ *
+ * tests/test_vm_misc_ops.c — remaining VM ops.
  *
  * Covers:
  *   0x0E SET_ENTITY_SCRIPT  → reset entity state + bind bytecode

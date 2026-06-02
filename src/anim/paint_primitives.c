@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/anim/paint_primitives.c — general-purpose paint helpers.
+ *
+ * src/anim/paint_primitives.c — general-purpose paint helpers.
  *
  * Two public APIs:
  *   paint_rawb_pic       — render a "RAWB" .pic blob into the back

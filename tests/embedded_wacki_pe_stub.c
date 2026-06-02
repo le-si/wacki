@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/embedded_wacki_pe_stub.c — empty embedded slice table for tests.
+ *
+ * tests/embedded_wacki_pe_stub.c — empty embedded slice table for tests.
  *
  * The engine binary links a real src/embedded_wacki_pe.c generated
  * by tools/embed-pe-data from data/WACKI.EXE. The test binary doesn't

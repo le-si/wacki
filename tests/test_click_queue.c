@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_click_queue.c — deferred click-event queue.
+ *
+ * tests/test_click_queue.c — deferred click-event queue.
  *
  * Per-entity VM op 0x22 doesn't dispatch click events synchronously
  * (entity-list mutations mid-iteration would corrupt the walker).

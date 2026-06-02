@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_assets.c — ANIM / MASK / FILD header parsing.
+ *
+ * tests/test_assets.c — ANIM / MASK / FILD header parsing.
  *
  * src/assets.c LoadAssetFromDtaBase parses the three shared-format
  * assets (3-byte magic + count + offset tables). It uses LoadFileFromDta

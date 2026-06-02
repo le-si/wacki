@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/flic.c — AAFLC (Autodesk FLIC inside AVI) decoder.
+ *
+ * src/flic.c — AAFLC (Autodesk FLIC inside AVI) decoder.
  *
  * The original engine drove this via MCI AVIVideo + VIDEO.DRV
  * (FLCCODEC NE DLL) on Win 9x. We ship a portable C decoder of the

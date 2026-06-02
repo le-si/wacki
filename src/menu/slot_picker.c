@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/menu/slot_picker.c — Sejw.pic + Load.pic save/load slot UI.
+ *
+ * src/menu/slot_picker.c — Sejw.pic + Load.pic save/load slot UI.
  *
  * Two SceneDefs share the same button layout (12 buttons, ids 0x12..
  * 0x1d):

@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/log.c — wacki_log + the runtime severity threshold.
+ *
+ * src/log.c — wacki_log + the runtime severity threshold.
  *
  * One line per call; format is `[level/tag] message\n`. Call sites
  * use the LOG_* macros in include/wacki/log.h. */

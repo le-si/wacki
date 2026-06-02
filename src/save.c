@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/save.c — Wacki.sav read / write / slot restore.
+ *
+ * src/save.c — Wacki.sav read / write / slot restore.
  *
  * The on-disk file is a verbatim dump of the in-memory `g_save`
  * (0x1E0C0 bytes). LoadSaveStateOrInitialize either re-reads it at

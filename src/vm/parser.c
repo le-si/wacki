@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/vm/parser.c — bytecode scanning helpers for the script VM.
+ *
+ * src/vm/parser.c — bytecode scanning helpers for the script VM.
  *
  * Implementation notes: every helper here walks the instruction
  * stream linearly using the `len * 2` stride encoded in byte +1 of

@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* src/game.c — top-level game state machine, scene runner, click
+ *
+ * src/game.c — top-level game state machine, scene runner, click
  * dispatcher, per-frame tick.
  *
  * Entry points: InitializeGameSubsystems (boot), RunMainGameLoop

@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
- */
-
-/* tests/test_save_slot.c — LoadSaveSlot field-copy + T102 order.
+ *
+ * tests/test_save_slot.c — LoadSaveSlot field-copy + T102 order.
  *
  * save_io covers the file-I/O half (read + write + atomic rename).
  * This file covers the SLOT RESTORE half: LoadSaveSlot pours a slot's
