@@ -165,6 +165,66 @@ static void parse_avih(AviCtx *c, uint32_t q)
     c->height = (uint16_t)rd_u32(c->buf + q + AVIH_DATA_HEIGHT_OFFSET);
 }
 
+/* Pre-queue every "01wb" audio chunk in the movi range so SDL's FIFO
+ * holds the entire stream before the first video frame draws. On the
+ * mmiyoo backend the device buffer is forced to 1024 samples (~46 ms
+ * at 22 kHz mono) while video chunks arrive every ~100 ms. Drip-feeding
+ * audio one chunk per video frame in that environment guarantees
+ * underrun the moment one decode + present pass overruns the 100 ms
+ * budget — and FLIC delta frames after a palette change can easily do
+ * that. Pre-queueing pushes all bytes upfront; the audio thread drains
+ * them at the device rate independent of how slowly the video loop
+ * runs.
+ *
+ * The AVI is short (intro Dane_10.dta is ~30 s) so the queue stays
+ * under a few MB. SDL_QueueAudio is essentially memcpy + a linked-list
+ * head update, so the cost is one-time at AVI open.
+ *
+ * If the source is stereo S16 but the device negotiated mono (mmiyoo
+ * passes SDL_AUDIO_ALLOW_CHANNELS_CHANGE because it can only output
+ * mono) we downmix L+R → (L+R)/2 in place before queuing. Without
+ * this the device interprets stereo bytes as a mono stream and plays
+ * the audio at double speed with alternating channels — sounds like
+ * garbled fast audio with chop artefacts at every chunk boundary.
+ * The in-place edit touches only bytes inside the chunk's data area;
+ * the RIFF chunk header (and therefore avi_next_video's cursor walk)
+ * is unaffected. */
+static void prequeue_all_audio(AviCtx *c)
+{
+    if (!s_audio_open) return;
+    int need_downmix = (c->audio_channels == 2 &&
+                        s_audio_spec_cur.channels == 1 &&
+                        c->audio_bits == 16);
+    uint32_t cur = c->movi_start;
+    uint32_t total_pushed = 0, chunks = 0;
+    while (cur + RIFF_CHUNK_HEADER_BYTES <= c->movi_end) {
+        uint32_t tag = rd_u32(c->buf + cur);
+        uint32_t sz  = rd_u32(c->buf + cur + 4);
+        uint32_t next = cur + RIFF_CHUNK_HEADER_BYTES + sz + (sz & 1);
+        if (tag == 0x62773130 /* "01wb" */ && sz) {
+            uint8_t *src = c->buf + cur + RIFF_CHUNK_HEADER_BYTES;
+            if (need_downmix && (sz & 3) == 0) {
+                int16_t *s = (int16_t *)src;
+                uint32_t frames = sz / 4;
+                for (uint32_t i = 0; i < frames; ++i) {
+                    int v = (int)s[i * 2] + (int)s[i * 2 + 1];
+                    s[i] = (int16_t)(v / 2);
+                }
+                SDL_QueueAudio(s_audio_dev, src, frames * 2);
+                total_pushed += frames * 2;
+            } else {
+                SDL_QueueAudio(s_audio_dev, src, sz);
+                total_pushed += sz;
+            }
+            ++chunks;
+        }
+        if (next <= cur || next > c->movi_end) break;
+        cur = next;
+    }
+    LOG_INFO("avi", "pre-queued audio: %u chunks, %u bytes (downmix=%d)",
+             chunks, total_pushed, need_downmix);
+}
+
 /* Parse one strl LIST: walk strh (decide audio vs video) + strf
  * (WAVEFORMATEX for audio streams). q points just past the LIST
  * header (= first sub-chunk). */
@@ -247,6 +307,7 @@ static int avi_open(AviCtx *c, const char *path)
             if (c->audio_samples_per_sec) {
                 audio_ensure(c->audio_samples_per_sec,
                              c->audio_channels, c->audio_bits);
+                prequeue_all_audio(c);
             }
             return 1;
         }
@@ -257,8 +318,9 @@ static int avi_open(AviCtx *c, const char *path)
     return 0;
 }
 
-/* Walk forward until we hit "00dc" (video). Along the way, queue any
- * "01wb" (audio) chunks we cross to the SDL audio device. */
+/* Walk forward until we hit "00dc" (video). "01wb" (audio) chunks are
+ * skipped here — prequeue_all_audio already pushed them into SDL's
+ * FIFO at avi_open time, so this loop only consumes video. */
 static int avi_next_video(AviCtx *c, uint8_t **out_data, uint32_t *out_size)
 {
     while (c->cursor + 8 <= c->movi_end) {
@@ -271,24 +333,9 @@ static int avi_next_video(AviCtx *c, uint8_t **out_data, uint32_t *out_size)
             c->cursor = next;
             return 1;
         }
-        if (tag == 0x62773130 /* "01wb" */ && s_audio_open && sz) {
-            SDL_QueueAudio(s_audio_dev, c->buf + c->cursor + 8, sz);
-            /* T38 audio-sync sanity — log when the queue gets very
-             * deep (>4 s at the active spec). Indicates the video is
-             * decoding too slowly or chunks are unevenly
-             * distributed. */
-            uint32_t qbytes = SDL_GetQueuedAudioSize(s_audio_dev);
-            uint32_t bps = (uint32_t)s_audio_spec_cur.freq *
-                           s_audio_spec_cur.channels *
-                           (SDL_AUDIO_BITSIZE(s_audio_spec_cur.format) / 8);
-            if (bps > 0 && qbytes > bps * 4) {
-                LOG_TRACE("avi-sync", "audio queue %.1fs ahead (cursor=0x%X)", (double)qbytes / (double)bps, c->cursor);
-            }
-        }
         /* Safety: a malformed chunk that would jump past movi_end
          * means the AVI is truncated or has a corrupt size field —
-         * treat as EOF rather than reading garbage past the
-         * buffer. */
+         * treat as EOF rather than reading garbage past the buffer. */
         if (next <= c->cursor || next > c->movi_end) return 0;
         c->cursor = next;
     }
