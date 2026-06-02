@@ -267,6 +267,18 @@ int RunMenuScene(int transition_mode, SceneDef *scene)
 {
     (void)transition_mode;
 
+    /* One-time INIT call so HandleMainMenuClick can do its first-frame
+     * setup (palette install, BGM start) BEFORE the heavy asset load.
+     * On a slow SD card (Miyoo) load_menu_scene_assets can take ~1.5 s
+     * for Tlo.wyc; doing INIT first means the holding-screen during
+     * that load already has the menu palette installed instead of the
+     * previous scene's residue (e.g. intro AVI's end-palette where
+     * index 0 = saturated blue → a long blue flash between AVI and
+     * title). enter_main_menu installs the palette AND clears the
+     * back buffer to colour 0 in the new palette, so the user sees
+     * a black holding screen during the load. */
+    if (scene->on_click) scene->on_click(MENU_INIT_TRIGGER);
+
     void      *bg_raw  = NULL;
     uint32_t   bg_size = 0;
     AnimAsset *buttons = NULL;
@@ -275,10 +287,6 @@ int RunMenuScene(int transition_mode, SceneDef *scene)
     if (!bg_loaded) FlipBuffersClearWith(0);
 
     LOG_TRACE("menu", "entered: bg='%s' mask='%s' atlas-frames=%d btns=%d", scene->background_pic ? scene->background_pic : "(none)", scene->mask_file      ? scene->mask_file      : "(none)", buttons ? buttons->frame_count : 0, scene->button_count);
-
-    /* One-time INIT call so HandleMainMenuClick can do its first-frame
-     * setup (palette install, BGM start). */
-    if (scene->on_click) scene->on_click(MENU_INIT_TRIGGER);
 
     int rc = MENU_RC_NONE;
     do {
