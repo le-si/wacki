@@ -91,6 +91,7 @@ static int           s_vcur_hold_ticks = 0;     /* d-pad-held duration */
 extern int         g_headless;
 extern int         g_scale_factor;
 extern const char *g_scale_mode;
+extern int         g_fullscreen;
 
 /* ---- typed-char ring buffer -------------------------------------- */
 
@@ -150,9 +151,17 @@ int PlatformInit(int w, int h, const char *title)
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_scale_mode);
     }
 
+    /* SDL_WINDOW_FULLSCREEN_DESKTOP (not _FULLSCREEN) keeps the desktop
+     * resolution and just makes the window cover the active display —
+     * cheap to toggle, no jarring mode-switch, plays nicely with macOS
+     * Spaces and multi-monitor setups. The framebuffer remains 640×480
+     * and SDL_RenderSetLogicalSize letterboxes it inside the screen. */
+    Uint32 win_flags = SDL_WINDOW_SHOWN;
+    if (g_fullscreen) win_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+
     s_win = SDL_CreateWindow(title,
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        win_w, win_h, SDL_WINDOW_SHOWN);
+        win_w, win_h, win_flags);
     if (!s_win) {
         LOG_INFO("log", "SDL_CreateWindow: %s", SDL_GetError());
         return 0;
@@ -191,7 +200,7 @@ int PlatformInit(int w, int h, const char *title)
     SDL_ShowCursor(SDL_DISABLE);
 
     const char *drv = SDL_GetCurrentVideoDriver();
-    LOG_INFO("platform", "SDL ready: %dx%d window (%dx scale, %s filter), renderer=%s", win_w, win_h, sf, g_scale_mode ? g_scale_mode : "nearest", drv ? drv : "?");
+    LOG_INFO("platform", "SDL ready: %dx%d window (%dx scale, %s filter, fullscreen=%d), renderer=%s", win_w, win_h, sf, g_scale_mode ? g_scale_mode : "nearest", g_fullscreen, drv ? drv : "?");
 
     /* Black initial frame so the window is never garbage. */
     memset(s_pixels32, 0, (size_t)w * h * ARGB_BYTES_PER_PIXEL);
@@ -287,6 +296,19 @@ static void handle_keydown(const SDL_Event *ev)
     if (sym == SDLK_F3)  g_stats_dump_request = 1;
     /* T24 — F12 opens the Pytanie quit-confirmation menu. */
     if (sym == SDLK_F12) g_pause_menu_request = 1;
+
+#ifndef WACKI_HANDHELD
+    /* F11 toggles fullscreen at runtime — common convention across
+     * desktop apps. SDL_WINDOW_FULLSCREEN_DESKTOP keeps the desktop
+     * resolution, just covers the active display. Skipped on handheld
+     * builds (Miyoo has no concept of windowed mode). */
+    if (sym == SDLK_F11 && s_win) {
+        g_fullscreen = !g_fullscreen;
+        SDL_SetWindowFullscreen(s_win,
+            g_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+        LOG_INFO("platform", "fullscreen=%d (F11)", g_fullscreen);
+    }
+#endif
 
     /* Inline-edit (save-slot rename): queue Backspace / Enter as
      * typed-char events so the edit loop sees them alongside the

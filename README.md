@@ -99,17 +99,24 @@ trzymanie do szybkiego przemieszczania go po ekranie.
 Wybrane opcje można podać z linii poleceń lub przez zmienne
 środowiskowe:
 
-| Flaga              | Zmienna środowiskowa | Działanie                                        |
-|--------------------|----------------------|--------------------------------------------------|
-| `--scale N`        | `WACKI_SCALE=N`      | okno powiększone N-krotnie (gra wewnętrznie 640×480) |
-| `--scaler MODE`    | `WACKI_SCALER=MODE`  | jakość skalowania: `nearest`, `linear`, `best`   |
-| `--seed N`         | `WACKI_SEED=N`       | ustalony seed losowości (do speedrunów / debugu) |
-| —                  | `WACKI_PATH=...`     | ścieżka do katalogu z `Dane_*.dta`               |
+| Flaga                  | Zmienna środowiskowa     | Działanie                                        |
+|------------------------|--------------------------|--------------------------------------------------|
+| `--scale N`            | `WACKI_SCALE=N`          | okno powiększone N-krotnie (gra wewnętrznie 640×480) |
+| `--scaler MODE`        | `WACKI_SCALER=MODE`      | jakość skalowania: `nearest`, `linear`, `best`   |
+| `--fullscreen` / `-f`  | `WACKI_FULLSCREEN=1`     | start w trybie pełnoekranowym (F11 przełącza w grze) |
+| `--seed N`             | `WACKI_SEED=N`           | ustalony seed losowości (do speedrunów / debugu) |
+| —                      | `WACKI_PATH=...`         | ścieżka do katalogu z `Dane_*.dta`               |
 
 Przykład: uruchomienie w oknie 1280×960 ze skalowaniem liniowym —
 
 ```bash
 ./wacki --scale 2 --scaler linear
+```
+
+Pełny ekran (zachowuje rozdzielczość pulpitu, letterbox 640×480) —
+
+```bash
+./wacki --fullscreen
 ```
 
 ## Budowanie ze źródeł

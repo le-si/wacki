@@ -103,6 +103,12 @@ int        g_no_pacing            = 0;
 int        g_scale_factor         = 0;
 const char *g_scale_mode          = "nearest";
 
+/* Fullscreen flag — set by --fullscreen / -f CLI or WACKI_FULLSCREEN
+ * env. PlatformInit consumes it to switch SDL_WINDOW_FULLSCREEN_DESKTOP
+ * on; F11 also toggles at runtime. No-op on WACKI_HANDHELD (Miyoo is
+ * always full-screen since there's no windowing system). */
+int        g_fullscreen           = 0;
+
 /* ---- stats dump (F3) -------------------------------------------- */
 
 void StatsDump(void)
@@ -241,6 +247,13 @@ static void parse_cli_args(int argc, char **argv, CliArgs *out)
         else if (strcmp(argv[i], "--scaler") == 0 && i + 1 < argc) {
             g_scale_mode = argv[++i];
         }
+        /* Fullscreen toggle — SDL borderless desktop fullscreen so the
+         * window covers the active display without changing the desktop
+         * resolution. F11 also toggles in-game. */
+        else if (strcmp(argv[i], "--fullscreen") == 0 ||
+                 strcmp(argv[i], "-f") == 0) {
+            g_fullscreen = 1;
+        }
         /* T29 / T30 — single-AVI test mode + batch cutscene sweep. */
         else if (strcmp(argv[i], "--play-avi") == 0 && i + 1 < argc) {
             out->play_avi = argv[++i];
@@ -301,6 +314,11 @@ static void apply_env_overrides(CliArgs *args)
 
     env = getenv("WACKI_SCALER");
     if (env && *env) g_scale_mode = env;
+
+    if (!g_fullscreen) {
+        env = getenv("WACKI_FULLSCREEN");
+        if (env && *env && *env != '0') g_fullscreen = 1;
+    }
 }
 
 /* Apply the parsed args' early-side effects: dev-stage jump, headless
