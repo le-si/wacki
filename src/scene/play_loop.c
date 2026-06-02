@@ -208,7 +208,17 @@ static void update_actor_perspective_scale(void)
 }
 
 /* Drain SPACE (toggle active actor) / ESC (user-confirmed quit) from
- * the platform key queue. */
+ * the platform key queue.
+ *
+ * On a handheld there's no real keyboard — every hardware button is
+ * mapped by firmware to some keyboard scancode, and the mapping isn't
+ * always predictable (Miyoo Mini Plus volume buttons triggered actor
+ * toggle on one user's device, presumably because OnionOS aliased
+ * them onto the same scancode as the A face button). Skip the
+ * SPACE → toggle binding entirely under WACKI_HANDHELD; the B button
+ * (RMB → toggle in HandleSceneInput) covers the same gesture
+ * intentionally. ESC stays — it's the universal quit and it's not
+ * remappable to a face button. */
 static void handle_gameplay_keys(int *quit)
 {
     if (!HasPendingKey()) return;
@@ -216,10 +226,13 @@ static void handle_gameplay_keys(int *quit)
     if (k == VK_ESCAPE) {
         g_game_over_code = GAME_OVER_USER_QUIT;
         *quit = 1;
-    } else if (k == VK_SPACE) {
+    }
+#ifndef WACKI_HANDHELD
+    else if (k == VK_SPACE) {
         g_active_actor ^= 1;
         LOG_TRACE("scene", "active actor → %s", g_active_actor ? "Fjej" : "Ebek");
     }
+#endif
 }
 
 /* F5 quicksave / F9 quickload latches (set by the platform_sdl key
