@@ -229,6 +229,12 @@ Gra obsługuje:
   slotu 0 z poziomu gry (na PC: `F5` zapis, `F9` odczyt; na
   handheldzie: `R1` / `R2` zapis, `L1` / `L2` odczyt)
 
+🔁 **Format `Wacki.sav` jest byte-identyczny z oryginałem z 1998 r.**
+Save zrobiony w porcie da się załadować w oryginalnej binarce
+`WACKI.EXE` (i odwrotnie) — można dograć w porcie etap zaczęty
+w oryginalnej grze pod Windows i kontynuować na handheldzie albo
+wręcz przeciwnie.
+
 Wszystkie sloty trzymane są w jednym pliku `Wacki.sav` w katalogu
 roboczym gry — obok binarki na PC, w `Roms/PORTS/Games/Wacki/` na
 handheldzie. Zapis jest atomowy (tymczasowy plik + rename), więc
