@@ -48,6 +48,14 @@ void    PlatformPushTypedChar(uint8_t c);
 
 int  FindDataRoot(void);
 
+/* wacki.cfg display-preference persistence (src/config.c). ConfigLoad
+ * runs before CLI/env parsing so stored prefs are the baseline;
+ * ConfigSave is called after the first-run picker + on F11 toggle.
+ * g_config_first_run is set by ConfigLoad when no wacki.cfg exists. */
+void ConfigLoad(void);
+void ConfigSave(void);
+extern int g_config_first_run;
+
 /* Deadline-aware frame pacer (src/timer.c). Caps the calling loop at
  * 1000/target_ms FPS but never sleeps PAST the deadline. Replaces the
  * old `SDL_Delay(target_ms)` pattern that added a fixed delay on top

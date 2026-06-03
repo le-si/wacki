@@ -17,8 +17,9 @@ src/embedded_wacki_pe.c
 *.o
 *.a
 
-# Runtime saves
+# Runtime saves + per-user display prefs
 Wacki.sav
+wacki.cfg
 
 # Logs / diagnostics
 *.log

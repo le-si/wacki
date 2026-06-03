@@ -334,6 +334,14 @@ int WackiMain(int argc, char **argv)
     /* SIGINT first so it covers init failures too. */
     signal(SIGINT, sigint_handler);
 
+    /* Load persisted display prefs FIRST so they form the baseline;
+     * the CLI parser + env overrides below then layer on top (an
+     * explicit --scale / --fullscreen always wins over wacki.cfg).
+     * Also sets g_config_first_run when no wacki.cfg exists, which
+     * PlatformInit reads to decide whether to show the one-time
+     * display-mode picker. */
+    ConfigLoad();
+
     CliArgs args;
     parse_cli_args(argc, argv, &args);
     apply_env_overrides(&args);

@@ -152,6 +152,49 @@ int PlatformInit(int w, int h, const char *title)
         return 1;
     }
 
+#ifndef WACKI_HANDHELD
+    /* First launch (no wacki.cfg yet) and the player didn't force a
+     * display mode on the command line / env — ask once which mode
+     * they want, then persist the choice so we never ask again.
+     * Needs SDL video, which SDL_Init above provided; a standalone
+     * message box (NULL parent) is fine before any window exists.
+     * Handheld skips this — Miyoo is always full-screen and has no
+     * pointer to click dialog buttons. */
+    extern int  g_config_first_run;
+    extern void ConfigSave(void);
+    if (g_config_first_run && g_fullscreen == 0 && g_scale_factor == 0) {
+        /* Raw UTF-8 literals — the source file is UTF-8, SDL message
+         * boxes take UTF-8, and every toolchain we build with (clang,
+         * gcc, mingw, arm-gcc) uses a UTF-8 execution charset. Avoids
+         * the \x-escape greedy-extend trap (\xBCesz parses "BCe" as
+         * one out-of-range escape). */
+        const SDL_MessageBoxButtonData btns[] = {
+            { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Pełny ekran" },
+            { 0,                                       1, "Okno 2×" },
+            { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 2, "Okno 1×" },
+        };
+        const SDL_MessageBoxData mbd = {
+            SDL_MESSAGEBOX_INFORMATION, NULL,
+            "Wacki — tryb wyświetlania",
+            "Jak chcesz grać?\n\n"
+            "Możesz to później zmienić:\n"
+            "  • F11 — przełącz pełny ekran\n"
+            "  • rozciągnij okno za róg, aby zmienić zoom",
+            (int)SDL_arraysize(btns), btns, NULL
+        };
+        int choice = -1;
+        if (SDL_ShowMessageBox(&mbd, &choice) == 0) {
+            switch (choice) {
+            case 0: g_fullscreen = 1;                    break;
+            case 1: g_fullscreen = 0; g_scale_factor = 2; break;
+            case 2: g_fullscreen = 0; g_scale_factor = 1; break;
+            default: break;   /* closed without picking → defaults */
+            }
+        }
+        ConfigSave();
+    }
+#endif
+
     /* T54 — HiDPI scaling. The framebuffer stays w×h; the SDL window
      * can be enlarged Nx and SDL_RenderSetLogicalSize handles the
      * upscale via SDL_HINT_RENDER_SCALE_QUALITY. */
@@ -166,8 +209,13 @@ int PlatformInit(int w, int h, const char *title)
      * resolution and just makes the window cover the active display —
      * cheap to toggle, no jarring mode-switch, plays nicely with macOS
      * Spaces and multi-monitor setups. The framebuffer remains 640×480
-     * and SDL_RenderSetLogicalSize letterboxes it inside the screen. */
-    Uint32 win_flags = SDL_WINDOW_SHOWN;
+     * and SDL_RenderSetLogicalSize letterboxes it inside the screen.
+     *
+     * SDL_WINDOW_RESIZABLE lets the player drag the window edge to
+     * rescale — the most discoverable zoom control (everyone knows
+     * how to resize a window). RenderSetLogicalSize keeps the 640×480
+     * canvas centred + letterboxed at any window size. */
+    Uint32 win_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
     if (g_fullscreen) win_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 
     s_win = SDL_CreateWindow(title,
@@ -337,6 +385,9 @@ static void handle_keydown(const SDL_Event *ev)
         SDL_SetWindowFullscreen(s_win,
             g_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
         LOG_INFO("platform", "fullscreen=%d (F11)", g_fullscreen);
+        /* Persist so the next launch opens in the chosen mode. */
+        extern void ConfigSave(void);
+        ConfigSave();
     }
 #endif
 
@@ -486,6 +537,26 @@ void PlatformPumpEvents(void)
              * clicks [×]. Treat both as a quit request so the main
              * loop unwinds + flushes saves. */
             if (ev.window.event == SDL_WINDOWEVENT_CLOSE) s_quit = 1;
+#ifndef WACKI_HANDHELD
+            /* Player dragged the window edge to rescale — remember the
+             * nearest integer zoom so the next launch reopens at this
+             * size. The live rescale itself is free (RenderSetLogical
+             * Size letterboxes the 640×480 canvas at any window size);
+             * we only persist the bucket. Skipped while fullscreen
+             * (the resize there reports the whole display). */
+            else if (ev.window.event == SDL_WINDOWEVENT_RESIZED &&
+                     !g_fullscreen && s_w > 0)
+            {
+                int scale = (ev.window.data1 + s_w / 2) / s_w; /* round */
+                if (scale < 1) scale = 1;
+                if (scale > 8) scale = 8;
+                if (scale != g_scale_factor) {
+                    g_scale_factor = scale;
+                    extern void ConfigSave(void);
+                    ConfigSave();
+                }
+            }
+#endif
             break;
         case SDL_KEYDOWN:
             handle_keydown(&ev);

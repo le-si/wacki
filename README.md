@@ -125,6 +125,23 @@ Najpewniejsza jest droga przez Ustawienia.
 | Przełącz postać       | `SPACE`              |
 | Pełny ekran           | `F11`                |
 
+### Tryb wyświetlania
+
+Przy **pierwszym uruchomieniu** gra zapyta jak chcesz grać —
+*Pełny ekran*, *Okno 2×* albo *Okno 1×*. Wybór jest zapamiętany
+(plik `wacki.cfg` obok gry), więc pytanie pojawia się tylko raz.
+
+W dowolnej chwili możesz zmienić:
+
+- **F11** — przełącza pełny ekran ↔ okno
+- **rozciągnij okno za róg** — płynnie zmienia powiększenie; gra
+  renderuje wewnętrznie 640×480 i skaluje z zachowaniem proporcji
+  (czarne pasy przy nietypowych proporcjach okna)
+
+Żeby znów zobaczyć pytanie o tryb — skasuj `wacki.cfg`. Zaawansowani
+mogą wymusić tryb z linii poleceń (sekcja niżej) — flagi mają
+pierwszeństwo nad zapamiętanym wyborem.
+
 ### Opcje uruchomienia
 
 Wybrane opcje można podać z linii poleceń lub przez zmienne
