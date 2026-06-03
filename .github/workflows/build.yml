@@ -5,11 +5,13 @@
 # Each runner needs `data/WACKI.EXE` at build time — its .rdata +
 # .data sections get embedded into the binary by tools/embed-pe-data.
 # The EXE is fetched at job start from a URL provided via the
-# `WACKI_EXE_URL` secret (a private server you own). The fetched
-# file lives only inside the runner's workspace; nothing copyrighted
-# ends up in artifacts (the embedded slice table inside the engine
-# binary is a transformation, but the source bytes themselves are
-# never re-uploaded).
+# `WACKI_EXE_URL` secret (a private server you own). The URL serves a
+# ZIP holding WACKI.EXE; the fetch step extracts it (and still
+# accepts a raw EXE via a magic-byte sniff). The fetched file lives
+# only inside the runner's workspace; nothing copyrighted ends up in
+# artifacts (the embedded slice table inside the engine binary is a
+# transformation, but the source bytes themselves are never
+# re-uploaded).
 #
 # Each build statically links SDL2 (STATIC_SDL2=1) so the released
 # artefacts have no runtime dependency on libSDL2 / SDL2.dll. The
@@ -151,7 +153,36 @@ jobs:
           fi
           mkdir -p data
           curl -fsSL --retry 3 --retry-delay 2 \
-               "$WACKI_EXE_URL" -o data/WACKI.EXE
+               "$WACKI_EXE_URL" -o data/_wacki_dl
+          # The secret URL serves a ZIP containing WACKI.EXE. Sniff the
+          # magic bytes (ZIP starts with "PK") and extract the EXE if so;
+          # tolerate a raw EXE too in case the URL is ever switched back
+          # to an unpacked file. unzip is present on the macOS + Linux
+          # runners; 7z is the fallback for Windows Git Bash where unzip
+          # isn't guaranteed.
+          if [ "$(head -c 2 data/_wacki_dl)" = "PK" ]; then
+            echo "[fetch] archive detected — extracting WACKI.EXE"
+            mkdir -p data/_unzip
+            if command -v unzip >/dev/null 2>&1; then
+              unzip -o -q data/_wacki_dl -d data/_unzip
+            elif command -v 7z >/dev/null 2>&1; then
+              7z x -y -odata/_unzip data/_wacki_dl >/dev/null
+            else
+              echo "::error::no unzip / 7z available to extract the archive"
+              exit 1
+            fi
+            exe=$(find data/_unzip -iname 'WACKI.EXE' | head -1)
+            [ -n "$exe" ] || exe=$(find data/_unzip -iname '*.exe' | head -1)
+            if [ -z "$exe" ]; then
+              echo "::error::no .exe found inside the downloaded archive"
+              find data/_unzip -type f
+              exit 1
+            fi
+            cp "$exe" data/WACKI.EXE
+            rm -rf data/_unzip data/_wacki_dl
+          else
+            mv data/_wacki_dl data/WACKI.EXE
+          fi
           ls -la data/WACKI.EXE
 
       # ---- build + test --------------------------------------------
@@ -314,7 +345,36 @@ jobs:
           fi
           mkdir -p data
           curl -fsSL --retry 3 --retry-delay 2 \
-               "$WACKI_EXE_URL" -o data/WACKI.EXE
+               "$WACKI_EXE_URL" -o data/_wacki_dl
+          # The secret URL serves a ZIP containing WACKI.EXE. Sniff the
+          # magic bytes (ZIP starts with "PK") and extract the EXE if so;
+          # tolerate a raw EXE too in case the URL is ever switched back
+          # to an unpacked file. unzip is present on the macOS + Linux
+          # runners; 7z is the fallback for Windows Git Bash where unzip
+          # isn't guaranteed.
+          if [ "$(head -c 2 data/_wacki_dl)" = "PK" ]; then
+            echo "[fetch] archive detected — extracting WACKI.EXE"
+            mkdir -p data/_unzip
+            if command -v unzip >/dev/null 2>&1; then
+              unzip -o -q data/_wacki_dl -d data/_unzip
+            elif command -v 7z >/dev/null 2>&1; then
+              7z x -y -odata/_unzip data/_wacki_dl >/dev/null
+            else
+              echo "::error::no unzip / 7z available to extract the archive"
+              exit 1
+            fi
+            exe=$(find data/_unzip -iname 'WACKI.EXE' | head -1)
+            [ -n "$exe" ] || exe=$(find data/_unzip -iname '*.exe' | head -1)
+            if [ -z "$exe" ]; then
+              echo "::error::no .exe found inside the downloaded archive"
+              find data/_unzip -type f
+              exit 1
+            fi
+            cp "$exe" data/WACKI.EXE
+            rm -rf data/_unzip data/_wacki_dl
+          else
+            mv data/_wacki_dl data/WACKI.EXE
+          fi
           ls -la data/WACKI.EXE
 
       - name: Build engine (Docker / union-miyoomini-toolchain)
