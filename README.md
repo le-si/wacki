@@ -90,16 +90,22 @@ oprogramowania"*. To jednorazowe — wybierz **jeden** sposób:
 
 - **Najprościej**: dwuklik na dołączony `Odblokuj-Wacki.command`.
   Zdejmie flagę kwarantanny z `Wacki.app` leżącego obok i tyle.
-- **Z Terminala**: w katalogu z grą wpisz
+- **Przez Ustawienia systemowe**: spróbuj uruchomić `Wacki.app`
+  (pojawi się blokada), a potem otwórz **System Settings →
+  Privacy & Security** (Ustawienia → Prywatność i bezpieczeństwo),
+  przewiń na sam dół do sekcji *Security* — będzie tam wpis
+  *„Wacki.app was blocked…"* z przyciskiem **Open Anyway**
+  (*Otwórz mimo to*). Kliknij, potwierdź w dialogu i gra ruszy.
+- **Prawy klik** (macOS ≤ 14 Sonoma): prawy klik / Ctrl-klik na
+  `Wacki.app` → **Open** → w dialogu jeszcze raz **Open**. (Na
+  macOS 15 Sequoia Apple usunęło tę ścieżkę — użyj Ustawień powyżej.)
+- **Z Terminala** (każda wersja): w katalogu z grą wpisz
   ```bash
   xattr -dr com.apple.quarantine Wacki.app
   ```
-- **Z GUI** (macOS 15 Sequoia): spróbuj uruchomić `Wacki.app`,
-  potem **System Settings → Privacy & Security** → przewiń na dół →
-  przy „Wacki.app was blocked" kliknij **Open Anyway**.
 
 Po jednym z tych kroków `Wacki.app` uruchamia się normalnie
-dwuklikiem.
+dwuklikiem — blokada jest jednorazowa.
 
 ### Sterowanie
 
