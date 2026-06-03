@@ -88,24 +88,28 @@ pierwszym uruchomieniu zablokuje `Wacki.app` komunikatem typu
 *„Apple nie może sprawdzić, czy nie zawiera złośliwego
 oprogramowania"*. To jednorazowe — wybierz **jeden** sposób:
 
-- **Najprościej**: dwuklik na dołączony `Odblokuj-Wacki.command`.
-  Zdejmie flagę kwarantanny z `Wacki.app` leżącego obok i tyle.
-- **Przez Ustawienia systemowe**: spróbuj uruchomić `Wacki.app`
-  (pojawi się blokada), a potem otwórz **System Settings →
-  Privacy & Security** (Ustawienia → Prywatność i bezpieczeństwo),
-  przewiń na sam dół do sekcji *Security* — będzie tam wpis
-  *„Wacki.app was blocked…"* z przyciskiem **Open Anyway**
-  (*Otwórz mimo to*). Kliknij, potwierdź w dialogu i gra ruszy.
-- **Prawy klik** (macOS ≤ 14 Sonoma): prawy klik / Ctrl-klik na
-  `Wacki.app` → **Open** → w dialogu jeszcze raz **Open**. (Na
-  macOS 15 Sequoia Apple usunęło tę ścieżkę — użyj Ustawień powyżej.)
-- **Z Terminala** (każda wersja): w katalogu z grą wpisz
+- **Przez Ustawienia systemowe** *(zalecane — sam GUI, bez Terminala)*:
+  1. Spróbuj uruchomić `Wacki.app` dwuklikiem — pojawi się blokada,
+     kliknij **Done / Gotowe**.
+  2. Otwórz **System Settings → Privacy & Security** (Ustawienia →
+     Prywatność i bezpieczeństwo), przewiń na sam dół do sekcji
+     *Security*.
+  3. Będzie tam wpis *„Wacki.app was blocked…"* z przyciskiem
+     **Open Anyway** (*Otwórz mimo to*) — kliknij i potwierdź.
+  4. `Wacki.app` rusza i od teraz odpala się normalnie dwuklikiem.
+- **Z Terminala** *(jedna komenda, każda wersja macOS)*: w katalogu
+  z grą wpisz
   ```bash
   xattr -dr com.apple.quarantine Wacki.app
   ```
+  i już — dwuklik działa.
+- **Prawy klik** *(tylko macOS ≤ 14 Sonoma)*: prawy klik / Ctrl-klik
+  na `Wacki.app` → **Open** → w dialogu jeszcze raz **Open**. Na
+  macOS 15 Sequoia Apple usunęło tę ścieżkę — użyj Ustawień powyżej.
 
-Po jednym z tych kroków `Wacki.app` uruchamia się normalnie
-dwuklikiem — blokada jest jednorazowa.
+Blokada dotyczy też innych niepodpisanych plików (dlatego nie
+dołączamy skryptu „odblokuj" — sam też zostałby zablokowany).
+Najpewniejsza jest droga przez Ustawienia.
 
 ### Sterowanie
 
