@@ -313,15 +313,43 @@ Knob `STATIC_SDL2=1` włącza static link + size opts (`-Os`, section GC,
 LTO na desktopie). `TARGET=miyoo` (+ `CROSS_COMPILE=arm-linux-gnueabihf-`)
 kierunkuje do ARM Cortex-A7 + NEON + hardfloat.
 
-Flagi runtime:
+## 11. Flagi runtime
+
+CLI flags i odpowiadające im env vars konsumowane przez engine. CLI
+ma pierwszeństwo nad ENV. Domyślne wartości w `src/main.c` (CLI
+parser + `apply_env_overrides`).
+
+**Display / okno:**
 
 | Flaga | Env equivalent | Efekt |
 |---|---|---|
-| `--headless` | `WACKI_HEADLESS=1` | Skip Window/Renderer/Texture (CI smoke) |
-| `--scale N` | `WACKI_SCALE=N` | Window N×640 × N×480 (framebuffer 640×480) |
-| `--scaler MODE` | `WACKI_SCALER=MODE` | `nearest` / `linear` / `best` — jakość scaling'u |
-| `--fullscreen` / `-f` | `WACKI_FULLSCREEN=1` | Pełny ekran (F11 toggle w grze) |
-| — | `WACKI_PATH=...` | Override ścieżki do `Dane_*.dta` |
+| `--scale N` | `WACKI_SCALE=N` | Window N×640 × N×480 (framebuffer dalej 640×480) |
+| `--scaler MODE` | `WACKI_SCALER=MODE` | `nearest` / `linear` / `best` — jakość upskalingu |
+| `--fullscreen` / `-f` | `WACKI_FULLSCREEN=1` | Borderless desktop fullscreen (F11 toggle w grze) |
+
+**Dane gry:**
+
+| Flaga | Env equivalent | Efekt |
+|---|---|---|
+| — | `WACKI_PATH=...` | Override ścieżki do `Dane_*.dta` (default: `./data/`) |
+
+**Logging:**
+
+| Flaga | Env equivalent | Efekt |
+|---|---|---|
+| `-v` / `--verbose` | — | Min level = `TRACE` (wymaga buildu z `-DWACKI_VERBOSE`) |
+| `-q` / `--quiet` | — | Min level = `WARN+` (default: `INFO`) |
+| — | `WACKI_INPUT_DEBUG=1` | Dump keydown/mousedown event w `platform_sdl.c` |
+
+**CI / smoke / dev:**
+
+| Flaga | Env equivalent | Efekt |
+|---|---|---|
+| `--headless` | `WACKI_HEADLESS=1` | Skip Window/Renderer/Texture (dummy SDL drivers) |
+| `--start-stage N` | `WACKI_START_STAGE=N` | Dev jump prosto do etapu 1..5, pomija menu + intro |
+| `--play-avi <DANE_NN.dta>` | — | Pojedyncza próba odtworzenia konkretnego AVI |
+| `--test-cutscenes` | — | Batch sweep wszystkich cutscenek (`implies --no-pacing`) |
+| `--no-pacing` | — | Wyłącz `SDL_Delay` pacing klatek (decode jak najszybciej) |
 
 CI matrix: macOS arm64, Linux x86_64, Windows x86_64 (MSYS2/mingw),
 Miyoo Mini Plus armv7l (Docker). Push tagu `v*` automatycznie publikuje

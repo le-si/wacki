@@ -87,14 +87,28 @@ Wielkość liter w nazwach plików nie ma znaczenia.
 ### Opcje uruchomienia
 
 Wybrane opcje można podać z linii poleceń lub przez zmienne
-środowiskowe:
+środowiskowe. CLI ma pierwszeństwo nad ENV.
+
+**Display:**
 
 | Flaga                  | Zmienna środowiskowa     | Działanie                                        |
 |------------------------|--------------------------|--------------------------------------------------|
 | `--scale N`            | `WACKI_SCALE=N`          | okno powiększone N-krotnie (gra wewnętrznie 640×480) |
 | `--scaler MODE`        | `WACKI_SCALER=MODE`      | jakość skalowania: `nearest`, `linear`, `best`   |
 | `--fullscreen` / `-f`  | `WACKI_FULLSCREEN=1`     | start w trybie pełnoekranowym (F11 przełącza w grze) |
-| —                      | `WACKI_PATH=...`         | ścieżka do katalogu z `Dane_*.dta`               |
+
+**Dane gry:**
+
+| Flaga                  | Zmienna środowiskowa     | Działanie                                        |
+|------------------------|--------------------------|--------------------------------------------------|
+| —                      | `WACKI_PATH=...`         | ścieżka do katalogu z `Dane_*.dta` (default: `./data/`) |
+
+**Logowanie:**
+
+| Flaga                  | Zmienna środowiskowa     | Działanie                                        |
+|------------------------|--------------------------|--------------------------------------------------|
+| `-q` / `--quiet`       | —                        | tylko ostrzeżenia i błędy (default to INFO)      |
+| `-v` / `--verbose`     | —                        | maksimum logów (wymaga buildu z `-DWACKI_VERBOSE`) |
 
 Przykład: uruchomienie w oknie 1280×960 ze skalowaniem liniowym —
 
@@ -107,6 +121,11 @@ Pełny ekran (zachowuje rozdzielczość pulpitu, letterbox 640×480) —
 ```bash
 ./wacki --fullscreen
 ```
+
+Niżej-poziomowe / dev opcje (`--headless`, `--start-stage N`,
+`--play-avi`, `--test-cutscenes`, `--no-pacing`, `WACKI_INPUT_DEBUG`)
+udokumentowane są w
+[`docs/architecture.md`](docs/architecture.md#11-flagi-runtime).
 
 ### Budowanie ze źródeł
 
