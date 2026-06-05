@@ -9,14 +9,14 @@
  *       Wired into the title-screen SceneDef as `.after_paint`. Paints
  *       a half-resolution, white, two-piece footer on a single baseline
  *       ~20 px from the screen bottom:
- *           left half  — author     (centred within the left half)
- *           right half — repo URL   (centred within the right half)
+ *           left half  — author + build version (centred in left half)
+ *           right half — repo URL               (centred in right half)
  *
  *   play_port_attribution_screen
  *       Standalone screen shown after Dane_12.dta (the in-game Credits
- *       AVI). Clears the back buffer, centres the two attribution lines
- *       vertically and horizontally, holds for ~4 s or until the user
- *       clicks/keys through.
+ *       AVI). Clears the back buffer, centres three lines (author, repo
+ *       URL, build version) vertically and horizontally, holds for ~4 s
+ *       or until the user clicks/keys through.
  *
  * The half-size footer is implemented as a software 2× downscale of a
  * Futura.30 render (the game ships only one font, 30 px tall). The
@@ -46,8 +46,21 @@
  * String-concat split around \xEE so the C parser doesn't greedily
  * extend the hex escape into the following 'a' (\x has no fixed
  * length — \xEEa = 0xEEa = "hex escape out of range"). */
-#define PORT_ATTRIBUTION_LINE1      ((const uint8_t *)"Port: Mateusz Szu" "\xEE" "a, 2026")
+#define PORT_ATTRIBUTION_AUTHOR     "Port: Mateusz Szu" "\xEE" "a, 2026"
+#define PORT_ATTRIBUTION_LINE1      ((const uint8_t *)PORT_ATTRIBUTION_AUTHOR)
 #define PORT_ATTRIBUTION_LINE2      ((const uint8_t *)"github.com/mszula/wacki")
+
+/* Build version baked in at compile time (Makefile -DWACKI_VERSION,
+ * e.g. "v0.1.0"). Falls back to "dev" if a build path forgets to pass
+ * it. Shown on its own centred line on the post-Credits screen and
+ * appended to the signature on the title footer, so a player can read
+ * back exactly which build they're running. WACKI_VERSION is a string
+ * literal, so it concatenates with the author literal at compile time —
+ * the comma chars / dots / dashes it contains are all in Futura.30. */
+#ifndef WACKI_VERSION
+#define WACKI_VERSION "dev"
+#endif
+#define PORT_ATTRIBUTION_VERSION    ((const uint8_t *)WACKI_VERSION)
 
 /* ---- layout constants --------------------------------------------- */
 
@@ -70,10 +83,10 @@
  * above the menu's button block without crowding the bottom edge. */
 #define PORT_ATTRIBUTION_BOTTOM_OFFSET  25
 
-/* Horizontal nudge applied only to the LEFT half's text (author
- * line). Pushing the author rightward toward the screen centre
- * tightens the visual grouping with the URL on the right half. */
-#define PORT_ATTRIBUTION_LEFT_NUDGE     24
+/* Half-size pixel gap between the three footer pieces (signature,
+ * version, URL). The whole three-piece group is centred on screen, so
+ * this is just the breathing room between adjacent pieces. */
+#define PORT_ATTRIBUTION_FOOTER_GAP     28
 
 /* Threshold for the 2× downscale: emit a destination pixel when at
  * least N of 4 source subpixels are lit. 2 = majority (bolder);
@@ -194,10 +207,12 @@ static void paint_line_small(int dst_x, int dst_y,
 
 /* SceneDef.after_paint hook for the title screen — runs every frame
  * after buttons + hover sprite are painted, so the attribution text
- * sits on top of the title art (and underneath the cursor). Two
- * pieces of half-resolution white text on a single baseline ~20 px
- * from the screen bottom: author centred in the left half of the
- * screen, repo URL centred in the right half. */
+ * sits on top of the title art (and underneath the cursor). One
+ * half-resolution white baseline ~20 px from the screen bottom holds
+ * three pieces in reading order — signature, build version, repo URL —
+ * each separated by a fixed gap and the whole group centred as a unit,
+ * so they stay balanced no matter how wide each piece is. The version
+ * sits right next to the signature it belongs to. */
 void paint_title_attribution_footer(void)
 {
     if (!g_default_font || !g_back_shadow) return;
@@ -208,29 +223,29 @@ void paint_title_attribution_footer(void)
                            - PORT_ATTRIBUTION_LINE_H_SMALL;
 
     /* Half-size widths — measure Futura at full size then divide by 2
-     * (matches paint_line_small's downscale ratio). */
-    int w1 = MeasureTextLine(g_default_font, PORT_ATTRIBUTION_LINE1) / 2;
-    int w2 = MeasureTextLine(g_default_font, PORT_ATTRIBUTION_LINE2) / 2;
+     * (matches paint_line_small's 2x downscale ratio). */
+    int wa = MeasureTextLine(g_default_font, PORT_ATTRIBUTION_LINE1)   / 2;
+    int wv = MeasureTextLine(g_default_font, PORT_ATTRIBUTION_VERSION) / 2;
+    int wu = MeasureTextLine(g_default_font, PORT_ATTRIBUTION_LINE2)   / 2;
 
-    /* Screen split at the middle: left half is [0 .. half), right half
-     * is [half .. W). Centre each piece within its own half, then
-     * nudge the left text rightward to tighten its grouping with the
-     * URL on the right side. */
-    int half = WACKI_SCREEN_W / 2;
-    int x1 = (half - w1) / 2 + PORT_ATTRIBUTION_LEFT_NUDGE;
-    int x2 = half + (half - w2) / 2;
-    if (x1 < 0) x1 = 0;
-    if (x2 < 0) x2 = 0;
+    /* Centre the signature + version + URL group as one unit. */
+    int gap   = PORT_ATTRIBUTION_FOOTER_GAP;
+    int total = wa + gap + wv + gap + wu;
+    int x     = (WACKI_SCREEN_W - total) / 2;
+    if (x < 0) x = 0;
 
-    paint_line_small(x1, y, white, PORT_ATTRIBUTION_LINE1);
-    paint_line_small(x2, y, white, PORT_ATTRIBUTION_LINE2);
+    paint_line_small(x, y, white, PORT_ATTRIBUTION_LINE1);
+    x += wa + gap;
+    paint_line_small(x, y, white, PORT_ATTRIBUTION_VERSION);
+    x += wv + gap;
+    paint_line_small(x, y, white, PORT_ATTRIBUTION_LINE2);
 }
 
 /* Standalone post-Credits attribution screen. Shown for ~4 s after
  * Dane_12.dta (the Credits AVI) finishes — clears the back buffer,
- * centres the two attribution lines vertically and horizontally,
- * flushes once, holds for the timeout unless the user clicks/keys
- * through.
+ * centres the three attribution lines (author, repo URL, build
+ * version) vertically and horizontally, flushes once, holds for the
+ * timeout unless the user clicks/keys through.
  *
  * The credits AVI leaves an arbitrary palette installed; index 0 was
  * often saturated blue and 0x12 (our default attribution colour) some
@@ -257,19 +272,24 @@ void play_port_attribution_screen(void)
 
     FlipBuffersClearWith(ATTRIBUTION_SCREEN_BG_INDEX);
 
-    int total_h = 2 * PORT_ATTRIBUTION_LINE_H;
+    int total_h = 3 * PORT_ATTRIBUTION_LINE_H;
     int y_line1 = (WACKI_SCREEN_H - total_h) / 2;
     int y_line2 = y_line1 + PORT_ATTRIBUTION_LINE_H;
+    int y_line3 = y_line2 + PORT_ATTRIBUTION_LINE_H;
 
     int w1 = MeasureTextLine(g_default_font, PORT_ATTRIBUTION_LINE1);
     int w2 = MeasureTextLine(g_default_font, PORT_ATTRIBUTION_LINE2);
+    int w3 = MeasureTextLine(g_default_font, PORT_ATTRIBUTION_VERSION);
     int x1 = (WACKI_SCREEN_W - w1) / 2;
     int x2 = (WACKI_SCREEN_W - w2) / 2;
+    int x3 = (WACKI_SCREEN_W - w3) / 2;
     if (x1 < 0) x1 = 0;
     if (x2 < 0) x2 = 0;
+    if (x3 < 0) x3 = 0;
 
     paint_line_full(x1, y_line1, ATTRIBUTION_SCREEN_FG_INDEX, PORT_ATTRIBUTION_LINE1);
     paint_line_full(x2, y_line2, ATTRIBUTION_SCREEN_FG_INDEX, PORT_ATTRIBUTION_LINE2);
+    paint_line_full(x3, y_line3, ATTRIBUTION_SCREEN_FG_INDEX, PORT_ATTRIBUTION_VERSION);
     FlushFrameToPrimary();
 
     /* Hold with a per-tick poll so user can dismiss with a click /
