@@ -42,15 +42,28 @@ CFLAGS   ?= -O2 -Wall -Wextra -Wpedantic \
 WACKI_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown)
 CFLAGS        += -DWACKI_VERSION='"$(WACKI_VERSION)"'
 
-# Miyoo Mini Plus tunings: Cortex-A7 + NEON + hardfloat. Same ABI as
-# Anbernic RG35XX and other SigmaStar SSD20x-based handhelds. Don't
-# enable LTO here — the Miyoo toolchain's ld + linker plugins have
-# been known to mis-emit thumb thunks under -flto. Section GC + -Os
-# still gets us 90% of the size win.
+# Handheld build profiles. WACKI_HANDHELD is the generic "this is a
+# handheld" switch (fullscreen, no display-mode picker, gamepad → cursor
+# input, SD-card data paths). WACKI_MIYOO layers the Miyoo Mini Plus
+# device specifics on top (the mmiyoo SDL2 fork's MI_AO volume restore +
+# its keysym button mapping in platform_miyoo.c).
+#
+#   TARGET=miyoo       Cortex-A7 + NEON + hardfloat, mmiyoo SDL2.
+#                      Don't enable LTO — the Miyoo toolchain's ld has
+#                      mis-emitted thumb thunks under -flto; -Os + section
+#                      GC still gets ~90% of the size win.
+#   TARGET=portmaster  Anbernic & friends (PortMaster). Standard SDL2,
+#                      stereo ALSA audio, real SDL_GameController input.
+#                      Arch flags (aarch64 / armhf) come from the build
+#                      environment (tools/build-portmaster.sh), so this
+#                      profile stays architecture-agnostic.
 ifeq ($(TARGET),miyoo)
     CFLAGS  += -mcpu=cortex-a7 -mfpu=neon -mfloat-abi=hard \
-               -DWACKI_HANDHELD
+               -DWACKI_HANDHELD -DWACKI_MIYOO
     BIN_NAME := wacki-miyoo
+else ifeq ($(TARGET),portmaster)
+    CFLAGS  += -DWACKI_HANDHELD -DWACKI_PORTMASTER
+    BIN_NAME := wacki
 else
     BIN_NAME := wacki
 endif
@@ -270,8 +283,12 @@ ENGINE_SRCS = \
 # src/platform_miyoo.c carries the OnionOS/MStar bits (MI_AO volume
 # restore) and pulls in libdl — kept out of desktop builds because
 # desktop linkers wouldn't find dlsym + libmi_ao.so doesn't exist.
+# src/platform_portmaster.c carries the Anbernic SDL_GameController →
+# cursor/click input glue.
 ifeq ($(TARGET),miyoo)
     ENGINE_SRCS += src/platform_miyoo.c
+else ifeq ($(TARGET),portmaster)
+    ENGINE_SRCS += src/platform_portmaster.c
 endif
 
 # macOS desktop gets a small Objective-C helper that re-titles SDL's

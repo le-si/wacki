@@ -239,16 +239,27 @@ static int scan_linux_mounts(void)
 #endif
 
 #ifdef WACKI_HANDHELD
-/* OnionOS SD card root + the canonical Wacki port subfolders. */
-static int scan_miyoo_card(void)
+/* Canonical handheld data locations. The normal case is already covered
+ * by the cwd + SDL_GetBasePath probes above (OnionOS' launch_standalone
+ * and PortMaster both cd into the game dir before exec), so this is a
+ * belt-and-suspenders fallback for the Miyoo SD root and the common
+ * PortMaster ports folders (/roms/ports, /roms2/ports) used across
+ * Anbernic firmwares (muOS, ROCKNIX, ArkOS, Knulli, Batocera...). */
+static int scan_handheld_card(void)
 {
     const char *paths[] = {
+        /* Miyoo / OnionOS */
         "/mnt/SDCARD",
         "/mnt/SDCARD/data",
         "/mnt/SDCARD/wacki",
         "/mnt/SDCARD/wacki/data",
         "/mnt/SDCARD/Roms/PORTS/Games/Wacki",
         "/mnt/SDCARD/Roms/PORTS/Games/Wacki/data",
+        /* PortMaster (Anbernic & friends) */
+        "/roms/ports/Wacki",
+        "/roms/ports/Wacki/data",
+        "/roms2/ports/Wacki",
+        "/roms2/ports/Wacki/data",
         NULL
     };
     for (int i = 0; paths[i]; ++i) {
@@ -413,7 +424,7 @@ int FindDataRoot(void)
 
     /* 6 + 7. External media / handheld card. */
 #ifdef WACKI_HANDHELD
-    if (scan_miyoo_card())     return DATA_ROOT_FOUND;
+    if (scan_handheld_card())  return DATA_ROOT_FOUND;
 #elif defined(__APPLE__)
     if (scan_macos_volumes())  return DATA_ROOT_FOUND;
 #elif defined(_WIN32)

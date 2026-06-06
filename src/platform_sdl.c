@@ -91,6 +91,7 @@ static int           s_typed_head = 0, s_typed_tail = 0;
 static int           s_vcur_x = 320, s_vcur_y = 240;
 static int           s_vcur_initialized = 0;
 static int           s_vcur_hold_ticks = 0;     /* d-pad-held duration */
+static float         s_vcur_rem_x = 0, s_vcur_rem_y = 0;  /* analog sub-px */
 
 extern int         g_headless;
 extern int         g_scale_factor;
@@ -134,7 +135,9 @@ int PlatformInit(int w, int h, const char *title)
      * the bundle the menu name comes from CFBundleName; this is the
      * fallback so a terminal-launched build still says "Wacki" rather
      * than the lowercase process name. Must precede SDL_Init. */
+#ifdef SDL_HINT_APP_NAME   /* added in SDL 2.0.18; handheld bases ship older */
     SDL_SetHint(SDL_HINT_APP_NAME, "Wacki");
+#endif
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_AUDIO) != 0) {
         LOG_INFO("log", "SDL_Init: %s", SDL_GetError());
@@ -143,11 +146,19 @@ int PlatformInit(int w, int h, const char *title)
     s_w = w;
     s_h = h;
 
-#ifdef WACKI_HANDHELD
+#ifdef WACKI_MIYOO
     /* Implemented in platform_miyoo.c — re-apply OnionOS-saved volume
      * via MI_AO_SetVolume. Linked only when TARGET=miyoo. */
     extern void platform_restore_system_volume(void);
     platform_restore_system_volume();
+#endif
+
+#ifdef WACKI_PORTMASTER
+    /* Open the handheld's game controller — see src/platform_portmaster.c. */
+    if (!g_headless) {
+        extern void platform_pad_open(void);
+        platform_pad_open();
+    }
 #endif
 
     if (g_headless) {
@@ -223,6 +234,15 @@ int PlatformInit(int w, int h, const char *title)
      * rescale — the most discoverable zoom control (everyone knows
      * how to resize a window). RenderSetLogicalSize keeps the 640×480
      * canvas centred + letterboxed at any window size. */
+#ifdef WACKI_PORTMASTER
+    /* Anbernic / PortMaster: standard SDL2 drives a KMSDRM panel with no
+     * window manager, so always cover the whole display via desktop-
+     * fullscreen and let SDL_RenderSetLogicalSize letterbox the 640×480
+     * canvas. (Miyoo's mmiyoo backend is inherently fullscreen and is
+     * happier left as a "window", so it keeps g_fullscreen as-is.) */
+    g_fullscreen = 1;
+#endif
+
     Uint32 win_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
     if (g_fullscreen) win_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 
@@ -444,12 +464,12 @@ static void handle_keydown(const SDL_Event *ev)
     if (sym == SDLK_RETURN || sym == SDLK_KP_ENTER)
         PlatformPushTypedChar(ASCII_ENTER);
 
-    /* Handheld face buttons + START + L1/L2 + R1/R2 → engine latches.
-     * The full keysym table lives in platform_miyoo.c so the
-     * cross-platform code path here doesn't grow per-port branches.
-     * Returns 1 iff a face-button mouse-click latch fired (for the
-     * input-debug annotation below). Desktop builds skip this entirely. */
-#ifdef WACKI_HANDHELD
+    /* Miyoo hardware buttons arrive as SDL keysyms from the mmiyoo
+     * backend; platform_miyoo.c maps them to engine latches. Anbernic /
+     * PortMaster instead use real SDL_GameController events (handled in
+     * the pump loop), so this keysym path is Miyoo-only. Returns 1 iff a
+     * face-button mouse-click latch fired (for the input-debug log). */
+#ifdef WACKI_MIYOO
     extern int platform_miyoo_handle_keydown(SDL_Keycode);
     int handled = platform_miyoo_handle_keydown(sym);
 #else
@@ -538,18 +558,47 @@ static void poll_virtual_cursor(void)
     int dx = (int)ks[SDL_SCANCODE_RIGHT] - (int)ks[SDL_SCANCODE_LEFT];
     int dy = (int)ks[SDL_SCANCODE_DOWN]  - (int)ks[SDL_SCANCODE_UP];
 
-    if (dx == 0 && dy == 0) {
+    /* Analog-stick contribution (px/tick), 0 unless a pad pushes past
+     * the deadzone. The d-pad folds into the discrete dx/dy. Filled by
+     * src/platform_portmaster.c on Anbernic; a no-op extern elsewhere. */
+    float ax = 0.0f, ay = 0.0f;
+#ifdef WACKI_PORTMASTER
+    {
+        extern void platform_pad_read_motion(int *, int *, float *, float *);
+        platform_pad_read_motion(&dx, &dy, &ax, &ay);
+    }
+#endif
+
+    if (dx == 0 && dy == 0 && ax == 0.0f && ay == 0.0f) {
         s_vcur_hold_ticks = 0;
+        s_vcur_rem_x = s_vcur_rem_y = 0.0f;
         return;
     }
 
-    int speed = VCUR_BASE_PIXELS_PER_TICK +
-        (s_vcur_hold_ticks * (VCUR_MAX_PIXELS_PER_TICK - VCUR_BASE_PIXELS_PER_TICK))
-        / VCUR_ACCEL_TICKS;
-    if (speed > VCUR_MAX_PIXELS_PER_TICK) speed = VCUR_MAX_PIXELS_PER_TICK;
+    /* Discrete d-pad / arrow keys: ±1 per axis with the accel ramp. */
+    if (dx != 0 || dy != 0) {
+        if (dx >  1) dx =  1;
+        if (dx < -1) dx = -1;
+        if (dy >  1) dy =  1;
+        if (dy < -1) dy = -1;
+        int speed = VCUR_BASE_PIXELS_PER_TICK +
+            (s_vcur_hold_ticks * (VCUR_MAX_PIXELS_PER_TICK - VCUR_BASE_PIXELS_PER_TICK))
+            / VCUR_ACCEL_TICKS;
+        if (speed > VCUR_MAX_PIXELS_PER_TICK) speed = VCUR_MAX_PIXELS_PER_TICK;
+        s_vcur_x += dx * speed;
+        s_vcur_y += dy * speed;
+        ++s_vcur_hold_ticks;
+    } else {
+        s_vcur_hold_ticks = 0;
+    }
 
-    s_vcur_x += dx * speed;
-    s_vcur_y += dy * speed;
+    /* Analog stick: proportional, carrying the sub-pixel remainder so a
+     * gentle push still creeps the cursor for fine aiming. */
+    s_vcur_rem_x += ax;
+    s_vcur_rem_y += ay;
+    int mvx = (int)s_vcur_rem_x; s_vcur_rem_x -= (float)mvx; s_vcur_x += mvx;
+    int mvy = (int)s_vcur_rem_y; s_vcur_rem_y -= (float)mvy; s_vcur_y += mvy;
+
     if (s_vcur_x < 0)        s_vcur_x = 0;
     if (s_vcur_y < 0)        s_vcur_y = 0;
     if (s_vcur_x >= s_w)     s_vcur_x = s_w - 1;
@@ -618,6 +667,16 @@ void PlatformPumpEvents(void)
         case SDL_MOUSEBUTTONDOWN:
             handle_mouse_button_down(&ev);
             break;
+#ifdef WACKI_PORTMASTER
+        case SDL_CONTROLLERBUTTONDOWN:
+        case SDL_CONTROLLERDEVICEADDED:
+        case SDL_CONTROLLERDEVICEREMOVED:
+            {
+                extern int platform_pad_handle_event(const SDL_Event *);
+                platform_pad_handle_event(&ev);
+            }
+            break;
+#endif
         }
     }
 
