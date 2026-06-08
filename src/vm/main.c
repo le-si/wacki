@@ -653,6 +653,19 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
                 extern uint32_t ent_ptr_intern(void *p);
                 *(uint32_t *)(eb + 0x2C) = new_bc ? ent_ptr_intern((void *)new_bc) : 0;
                 *(uint16_t *)(eb + 0x30) = 0;
+
+                /* Binding a fresh visible anim to an ACTOR un-hides it.
+                 * klatka2 skarpeta climb: the verb script hides Fjej
+                 * (op 0x3E) to drop the approach pose, then binds the
+                 * climb anim here. Fjej runs the first climb segment
+                 * itself (frames 60-71, anchor rising); without this it
+                 * plays invisibly for the ~500 ms lead-in until the
+                 * climb-overlay sprite takes over. During the overlay
+                 * phase the script parks the actor off-screen (x≈1000 →
+                 * culled), so this can't double-render the climb. */
+                extern Entity *g_actor[2];
+                if (e == g_actor[0] || e == g_actor[1])
+                    *(uint16_t *)(eb + 8) &= (uint16_t)~0x0080u;   /* clear EFLAG_HIDDEN */
             }
             break;
         }
