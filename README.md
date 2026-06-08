@@ -1,9 +1,11 @@
 # Wacki: Kosmiczna rozgrywka
 
-A portable port of **Wacki: Kosmiczna rozgrywka** (1998) — a Polish
-point-and-click adventure. The game is in Polish, set in Poland, and
-was made in Poland; for that reason the rest of this README is in
-Polish too.
+A faithful, cross-platform port of **Wacki: Kosmiczna rozgrywka**
+(1998) — a Polish point-and-click adventure — reconstructed from the
+decompiled `WACKI.EXE`. It runs on desktop (macOS / Linux / Windows)
+and on handhelds (Miyoo, plus Anbernic and dozens more via PortMaster).
+The game is in Polish, set in Poland, and was made in Poland; for that
+reason the rest of this README is in Polish too.
 
 ![Wacki: Kosmiczna rozgrywka](docs/img/wacki.jpg)
 
@@ -323,7 +325,7 @@ Gra obsługuje:
   w rozgrywce
 - **Quick-save / quick-load** — natychmiastowy zapis i wczytanie ze
   slotu 0 z poziomu gry (na PC: `F5` zapis, `F9` odczyt; na
-  handheldzie: `R1` / `R2` zapis, `L1` / `L2` odczyt)
+  handheldzie: `R1` zapis, `L1` odczyt)
 
 🔁 **Format `Wacki.sav` jest byte-identyczny z oryginałem z 1998 r.**
 Save zrobiony w porcie da się załadować w oryginalnej binarce
