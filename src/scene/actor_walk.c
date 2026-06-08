@@ -15,7 +15,8 @@
  *
  *   ActorWalkToBlocking   — op 0x10 / 0x11: single-actor synchronous
  *   ActorWalkBothBlocking — op 0x12: stagger actor 0 by ~500 ms, bind
- *                          actor 1, then wait for one or both
+ *                          actor 1, then wait — either for the FIRST
+ *                          actor to arrive (mode 0) or for both (mode != 0)
  *
  * Both leave g_script_vars[SCRIPT_VAR_INTERRUPTED_FLAG] = 1 on click
  * interruption, 0 on natural drain — the calling verb script reads
@@ -54,9 +55,28 @@ extern void ProcessGameFrameTick(void);
  * back to the calling verb script. */
 #define SCRIPT_VAR_INTERRUPTED_FLAG         4
 
-/* op 0x12 mode bits. mode == 0 → wait for BOTH actors; non-zero →
- * wait for actor 0 only. */
-#define WALK_BOTH_MODE_WAIT_BOTH            0
+/* op 0x12 wait-mode flag (operand a2), faithful to FUN_00407820 case
+ * 0x12:
+ *   a2 == 0 → return as soon as EITHER actor reaches the target. This
+ *             is the go-to-exit path: the verb script runs op 0x20
+ *             (GO_EXIT) next, so the komnata transition fires when the
+ *             leader — actor 0, who gets the head-start — hits the edge.
+ *   a2 != 0 → block until BOTH actors have arrived.
+ *
+ * NOTE: the port long had these inverted (0 = wait both). Because the
+ * real exit-verb bytecode ships a2 = 0, that inversion forced BOTH
+ * characters to walk to the edge before the room changed, instead of
+ * just one. */
+#define WALK_BOTH_MODE_WAIT_EITHER          0
+
+/* op 0x12 (a2 == 0) writes which actor reached the target into the
+ * per-actor flag words var[1] (actor 0 / Ebek) and var[2] (actor 1 /
+ * Fjej): 0 = arrived, 1 = still walking. These alias the same words
+ * walker.c uses for the frozen bit (SCRIPT_VAR_ACTOR_FLAGS_BASE), but
+ * neither actor is frozen while walking together, so the original's
+ * whole-word write is non-destructive. */
+#define SCRIPT_VAR_ACTOR0_ARRIVED           1
+#define SCRIPT_VAR_ACTOR1_ARRIVED           2
 
 /* ---- helpers ---------------------------------------------------- */
 
@@ -138,16 +158,34 @@ static int run_stagger_phase(void)
     return 0;
 }
 
-/* Returns 1 if any of the bound actors still has walker work to do
- * (respecting `mode` — mode != 0 only checks actor 0). */
-static int any_bound_actor_busy(const int bound[2], int mode)
+/* Returns 1 if either bound actor still has walker work to do — the
+ * wait-both predicate (loop while this holds, exit once both drain). */
+static int any_bound_actor_busy(const int bound[2])
 {
     for (int i = 0; i < 2; ++i) {
         if (!bound[i] || !g_actor[i]) continue;
-        if (mode != WALK_BOTH_MODE_WAIT_BOTH && i != 0) continue;
         if (actor_walker_busy(g_actor[i])) return 1;
     }
     return 0;
+}
+
+/* Returns 1 once actor `i` has reached the target. A present actor whose
+ * walker has drained counts as arrived; so does one that never bound a
+ * walker (already at the target). Absent actors never satisfy the wait.
+ *
+ * NOTE: a drained walker (+0x4C/+0x50 == 0) read right after a full
+ * ProcessGameFrameTick reliably means "arrived at the FINAL target", not
+ * merely "between waypoint legs": PerActorWaypointAdvanceTick re-arms the
+ * walker for the next leg inside the same tick (frame_tick.c), so a
+ * mid-path actor reads busy again by the time we look. This is the port's
+ * equivalent of the original's pending-target sentinel
+ * (DAT_0044e570 / DAT_0044e5c0 == -1), which lived in its multi-leg
+ * re-pathing rather than in a separate flag we track here. */
+static int actor_arrived(const int bound[2], int i)
+{
+    if (!g_actor[i]) return 0;
+    if (!bound[i])   return 1;
+    return !actor_walker_busy(g_actor[i]);
 }
 
 void ActorWalkBothBlocking(int16_t tx, int16_t ty, int mode)
@@ -167,14 +205,42 @@ void ActorWalkBothBlocking(int16_t tx, int16_t ty, int mode)
 
     if (g_actor[1]) bound[1] = BindActorWalker(1, (int)tx, (int)ty);
 
-    /* Wait for the walker(s) to drain. */
     int safety = WALK_BOTH_SAFETY_ITERS;
-    while (safety-- > 0) {
-        if (!any_bound_actor_busy(bound, mode)) break;
-        ProcessGameFrameTick();
-        if (PlatformShouldQuit() || g_game_over_code) break;
-        if (g_lmb_clicked) { interrupted = 1; break; }
-        EnginePaceFrame(WALK_FRAME_DELAY_MS);
+    if (mode == WALK_BOTH_MODE_WAIT_EITHER) {
+        /* Go-to-exit: stop the instant EITHER actor arrives, checking
+         * actor 0 (the head-start leader) first, and record which one
+         * reached the target in var[1]/var[2] — mirrors FUN_00407820. */
+        while (safety-- > 0) {
+            ProcessGameFrameTick();
+            if (PlatformShouldQuit() || g_game_over_code) break;
+
+            if (g_actor[0]) {
+                if (actor_arrived(bound, 0)) {
+                    g_script_vars[SCRIPT_VAR_ACTOR0_ARRIVED] = 0;
+                    break;
+                }
+                g_script_vars[SCRIPT_VAR_ACTOR0_ARRIVED] = 1;
+            }
+            if (g_actor[1]) {
+                if (actor_arrived(bound, 1)) {
+                    g_script_vars[SCRIPT_VAR_ACTOR1_ARRIVED] = 0;
+                    break;
+                }
+                g_script_vars[SCRIPT_VAR_ACTOR1_ARRIVED] = 1;
+            }
+
+            if (g_lmb_clicked) { interrupted = 1; break; }
+            EnginePaceFrame(WALK_FRAME_DELAY_MS);
+        }
+    } else {
+        /* Wait until BOTH actors have drained their walkers. */
+        while (safety-- > 0) {
+            if (!any_bound_actor_busy(bound)) break;
+            ProcessGameFrameTick();
+            if (PlatformShouldQuit() || g_game_over_code) break;
+            if (g_lmb_clicked) { interrupted = 1; break; }
+            EnginePaceFrame(WALK_FRAME_DELAY_MS);
+        }
     }
 
 done:

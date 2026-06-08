@@ -438,8 +438,8 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
  *
  * Bytecode layout: `[op:1][len:1] [X:2] [Y:2] [mode:2]`
  * len=2 means 8 bytes total (len*4). For op 0x10/0x11 a2 is
- * unused; for op 0x12 a2 = wait-mode flag (0 = wait for both,
- * else wait for actor 0 only). */
+ * unused; for op 0x12 a2 = wait-mode flag (0 = return when EITHER
+ * actor reaches the target — the go-to-exit case; else wait for both). */
         case OP_WALK_EBEK:                              /* walk Ebek */
             ActorWalkToBlocking(0, (int16_t)a0, (int16_t)a1);
             break;
@@ -451,9 +451,9 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
  * setup actor 0 walker (target = a0, a1)
  * wait 0x32 ticks
  * setup actor 1 walker (same target)
- * if (a2 == 0) wait for BOTH; else wait for actor 0 only
+ * if (a2 == 0) return when EITHER actor arrives; else wait for BOTH
  *
- * a2 = mode flag (0 = wait both, 1 = wait actor 0). */
+ * a2 = wait-mode flag (0 = wait either / go-to-exit, 1 = wait both). */
             extern void ActorWalkBothBlocking(int16_t, int16_t, int);
             ActorWalkBothBlocking((int16_t)a0, (int16_t)a1, (int)a2);
             break;
