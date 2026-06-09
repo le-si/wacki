@@ -101,9 +101,9 @@ extern AnimAsset *g_menu_asset_10;
  * by Pytanie where the dialog only shows TAK/NIE highlighted on hover);
  * in that case fall back to hover_anim's rect so the cursor still hits.
  *
- * Some buttons store a 1×1 placeholder in def_anim (e.g. Grafika.wyc
- * exit) and the real clickable rect lives only in the hover frame —
- * test both and take the union of the two bounding boxes. */
+ * Defensive: if a button's def_anim were ever a 1×1 placeholder, its
+ * real clickable rect would live only in the hover frame — so test
+ * both frames and take the union of the two bounding boxes. */
 static int hit_test_buttons(SceneDef *scene, AnimAsset *atlas,
                             int mx, int my)
 {

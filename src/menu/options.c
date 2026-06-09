@@ -250,10 +250,11 @@ static SceneDef g_solund_scene = {
 
 /* ---- Grafika.pic constants + handler ------------------------------ */
 
-/* Grafika.wyc has a 12-frame redraw atlas:
+/* Grafika.wyc redraw atlas (11 frames; frame 8 is an unused 1×1 stub).
+ * Frame indices are 1:1 with the original button table at 0x00445c4c:
  *   button[0] ON  → def=0 hover=6     OFF → def=3 hover=9
  *   button[1] ON  → def=1 hover=7     OFF → def=4 hover=10
- *   button[2] exit (static)           def=8 hover=2 */
+ *   button[2] exit (static)           def=2 hover=5 */
 #define GRAFIKA_BTN_FLAG1               0x12
 #define GRAFIKA_BTN_FLAG2               0x13
 #define GRAFIKA_BTN_EXIT                0x14
@@ -268,8 +269,8 @@ static SceneDef g_solund_scene = {
 #define GRAFIKA_F2_DEF_OFF              4
 #define GRAFIKA_F2_HOVER_ON             7
 #define GRAFIKA_F2_HOVER_OFF            10
-#define GRAFIKA_EXIT_DEF                8
-#define GRAFIKA_EXIT_HOVER              2
+#define GRAFIKA_EXIT_DEF                2
+#define GRAFIKA_EXIT_HOVER              5
 
 static int GrafikaClick(int trigger)
 {
