@@ -1,0 +1,80 @@
+name: Deploy site to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'website/**'
+      - '.github/workflows/pages.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Inject release version and date
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG='${{ github.event.release.tag_name }}'
+            PUB='${{ github.event.release.published_at }}'
+          else
+            REL="$(gh api "repos/${{ github.repository }}/releases/latest" 2>/dev/null || true)"
+            if [ -n "$REL" ]; then
+              TAG="$(printf '%s' "$REL" | jq -r '.tag_name // empty')"
+              PUB="$(printf '%s' "$REL" | jq -r '.published_at // empty')"
+            else
+              TAG=""; PUB=""
+            fi
+          fi
+          if [ -z "$TAG" ]; then
+            echo "No release found - leaving version/date as-is in HTML."
+            exit 0
+          fi
+          DATE=""
+          if [ -n "$PUB" ]; then
+            Y="${PUB:0:4}"; M="${PUB:5:2}"; D="${PUB:8:2}"; D="${D#0}"
+            case "$M" in
+              01) MN=stycznia;;  02) MN=lutego;;     03) MN=marca;;       04) MN=kwietnia;;
+              05) MN=maja;;      06) MN=czerwca;;    07) MN=lipca;;       08) MN=sierpnia;;
+              09) MN=września;;  10) MN=października;; 11) MN=listopada;;  12) MN=grudnia;;
+              *)  MN="";;
+            esac
+            DATE="$D $MN $Y"
+          fi
+          echo "Version: $TAG | Date: ${DATE:-(none)}"
+          sed -i "s#\(id=\"rel-ver\"[^>]*>\)[^<]*#\1${TAG}#" website/index.html
+          if [ -n "$DATE" ]; then
+            sed -i "s#\(id=\"rel-date\"[^>]*>\)[^<]*#\1${DATE}#" website/index.html
+          fi
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact (website/)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./website
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
