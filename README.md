@@ -7,7 +7,7 @@ and on handhelds (Miyoo, plus Anbernic and dozens more via PortMaster).
 The game is in Polish, set in Poland, and was made in Poland; for that
 reason the rest of this README is in Polish too.
 
-![Wacki: Kosmiczna rozgrywka](docs/img/wacki.jpg)
+![Wacki: Kosmiczna rozgrywka](docs/img/wacki.png)
 
 ## 👽 O grze
 
@@ -367,6 +367,19 @@ W zgłoszeniu pomogą:
 
 Jeśli to feature request lub pytanie o przyszłe platformy / mody —
 też smiało, ale w issue zaznacz `[feature]` lub `[question]` w tytule.
+
+---
+
+## ☕ Wsparcie
+
+Wacki portuję po godzinach, za darmo i z czystej miłości do tej
+zwariowanej gry. Jeśli port przywołał uśmiech (albo łezkę nostalgii)
+i chcesz dorzucić się na kawę — to paliwo do kolejnych poprawek
+i portów polskiej klasyki:
+
+➡️ [**suppi.pl/mszula**](https://suppi.pl/mszula)
+
+Dzięki! 🙌
 
 ---
 
