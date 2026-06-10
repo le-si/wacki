@@ -173,7 +173,15 @@ static void reset_perspective_baseline(void)
  * perspective bias. */
 static void reset_actor_walker_state(void)
 {
+    /* A held action/climb scale (g_actor_scale_frozen) is per-komnata and
+     * is only otherwise cleared by the next walk — drop it on room entry so
+     * a freeze from the previous room (e.g. an interrupted climb) can't
+     * carry a stuck scale into a scene where the actor never walks. */
+    extern int g_actor_scale_frozen[2];
+
     for (int i = 0; i < 2; ++i) {
+        g_actor_scale_frozen[i] = 0;
+
         Entity *a = g_actor[i];
         if (!a) continue;
 

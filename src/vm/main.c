@@ -88,6 +88,7 @@ extern void ScriptCallSpawnEntity(uint16_t id, uint16_t flags,
 extern void ScriptCallEnableEnt (uint16_t id, int enable);
 extern void ScriptCallHideEnt   (uint16_t id);
 extern void ScriptCallShowEnt   (uint16_t id);
+extern int  actor_perspective_scale(Entity *a);   /* walker.c — depth ramp */
 extern const void *xlat_binary_ptr(uint32_t addr);
 extern int         PeLoaderContainsVA(uint32_t va);
 extern const char *xlat_asset_name(uint32_t addr);
@@ -109,6 +110,13 @@ extern void ScriptCallDialogEnd  (const char *result);
 /* ---- RunScriptInterpreter — 78 opcodes --------------------------- */
 #define VM_CALL_STACK_DEPTH  10
 #define VM_LOOP_SLOTS        10
+
+/* Minimum perspective scale (0..0xA0 ramp) at which op 0x0E is allowed to
+ * reveal a hidden actor for a scripted action (the klatka2 skarpeta climb,
+ * bound at the rope base ~120%). Below this the actor is at/behind the
+ * horizon and a hide+rebind means "vanish into depth" — it must stay
+ * hidden, not pop back as a stuck, tiny sprite. See OP_SET_ENTITY_SCRIPT. */
+#define ACTOR_REVEAL_MIN_SCALE  0x40
 
 int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
                          uint8_t *bytecode)
@@ -654,25 +662,47 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
                 *(uint32_t *)(eb + 0x2C) = new_bc ? ent_ptr_intern((void *)new_bc) : 0;
                 *(uint16_t *)(eb + 0x30) = 0;
 
-                /* Binding a fresh visible anim to an ACTOR un-hides it.
-                 * klatka2 skarpeta climb: the verb script hides Fjej
-                 * (op 0x3E) to drop the approach pose, then binds the
-                 * climb anim here. Fjej runs the first climb segment
-                 * itself (frames 60-71, anchor rising); without this it
-                 * plays invisibly for the ~500 ms lead-in until the
-                 * climb-overlay sprite takes over. During the overlay
-                 * phase the script parks the actor off-screen (x≈1000 →
-                 * culled), so this can't double-render the climb. */
+                /* Binding a fresh visible anim to a HIDDEN actor in the
+                 * FOREGROUND un-hides it. klatka2 skarpeta climb: the verb
+                 * script hides Fjej (op 0x3E) to drop the approach pose,
+                 * then binds the climb anim here. Fjej runs the first climb
+                 * segment itself (frames 60-71, anchor rising); without
+                 * this it plays invisibly for the ~500 ms lead-in until the
+                 * climb-overlay sprite takes over. During the overlay phase
+                 * the script parks the actor off-screen (x≈1000 → culled),
+                 * so this can't double-render the climb.
+                 *
+                 * Two gates keep this from misfiring — the original op 0x0E
+                 * (FUN_00401210) does NOT touch hidden at all; this whole
+                 * branch is a port-local compensation, so it must be narrow:
+                 *
+                 *  - was_hidden: op 0x0E is also the routine scene-setup op
+                 *    that points each actor's per-entity VM at its idle
+                 *    script, which runs on a VISIBLE actor every komnata.
+                 *    The original only freezes scale by hiding, so an idle
+                 *    rebind on a visible actor must leave its scale free or
+                 *    it stops shrinking as it walks into depth.
+                 *
+                 *  - foreground: op 0x3E + op 0x0E is ALSO how a scene sends
+                 *    an actor BEHIND THE HORIZON (hide, then rebind while
+                 *    deep). There the actor's perspective scale is near zero
+                 *    and it must STAY hidden — revealing it leaves a stuck,
+                 *    tiny sprite that should have vanished into the distance.
+                 *    The climb is bound at the rope base (~120%), well above
+                 *    the threshold; a deep approach is far below it. */
                 extern Entity *g_actor[2];
-                if (e == g_actor[0] || e == g_actor[1]) {
+                int was_hidden = (*(uint16_t *)(eb + 8) & 0x0080u) != 0;
+                if (was_hidden && (e == g_actor[0] || e == g_actor[1]) &&
+                    actor_perspective_scale(e) >= ACTOR_REVEAL_MIN_SCALE) {
                     int aidx = (e == g_actor[1]) ? 1 : 0;
                     *(uint16_t *)(eb + 8) &= (uint16_t)~0x0080u;   /* clear EFLAG_HIDDEN */
                     /* Hold the perspective scale for the action: the climb
                      * anim drives the anchor UP the rope, which would
                      * otherwise shrink the actor (perspective reads rising
                      * Y as "deeper"). The original keeps a constant,
-                     * natural-size climb; freezing the scale matches it.
-                     * Cleared when the actor next walks (BindActorWalker). */
+                     * natural-size climb (the actor is hidden, its scale
+                     * frozen); freezing here matches it. Cleared when the
+                     * actor next walks (BindActorWalker). */
                     extern int g_actor_scale_frozen[2];
                     g_actor_scale_frozen[aidx] = 1;
                 }

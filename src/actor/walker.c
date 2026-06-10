@@ -130,6 +130,24 @@ static int            s_wp_path_len[2] = { 0, 0 };
  * the actor starts a normal walk (BindActorWalker). */
 int g_actor_scale_frozen[2] = { 0, 0 };
 
+/* Perspective scale (clamped 0..ACTOR_MAX_SCALE) the actor WOULD have at
+ * its current anchor — the depth ramp, independent of the hidden/frozen
+ * gates. Actors farther up the screen (lower anchor Y) read smaller;
+ * past the horizon the ramp clamps to 0 (invisible). Shared by the
+ * per-frame scale write (UpdateActorMovement) and the op-0x0E reveal
+ * policy (vm/main.c), which only un-hides an actor for a foreground
+ * action — not one being sent behind the horizon. */
+int actor_perspective_scale(Entity *a)
+{
+    int anchor_y = EOFF(a, ENT_OFF_ANCHOR_Y, int16_t);
+    int z = (int)g_cursor_speed -
+            ((PERSP_BASELINE_Y - anchor_y) * (int)g_perspective_min) /
+            (int)g_perspective_step;
+    if (z < 0)               z = 0;
+    if (z > ACTOR_MAX_SCALE)  z = ACTOR_MAX_SCALE;
+    return z;
+}
+
 /* =================================================================== *
  * UpdateActorMovement.
  *
@@ -175,13 +193,7 @@ void UpdateActorMovement(int16_t target_x, int16_t target_y)
             continue;                       /* action/climb holds its start scale */
         }
 
-        int anchor_y = EOFF(a, ENT_OFF_ANCHOR_Y, int16_t);
-        int z = (int)g_cursor_speed -
-                ((PERSP_BASELINE_Y - anchor_y) * (int)g_perspective_min) /
-                (int)g_perspective_step;
-        if (z < 0)              z = 0;
-        if (z > ACTOR_MAX_SCALE) z = ACTOR_MAX_SCALE;
-        EOFF(a, ENT_OFF_SCALE_PCT, int16_t) = (int16_t)z;
+        EOFF(a, ENT_OFF_SCALE_PCT, int16_t) = (int16_t)actor_perspective_scale(a);
 
         if (g_script_vars[SCRIPT_VAR_ACTOR_FLAGS_BASE + i] & SCRIPT_ACTOR_FROZEN_BIT) {
             continue;

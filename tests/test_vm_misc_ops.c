@@ -26,6 +26,17 @@
 
 extern int RunScriptInterpreter(uint16_t this_id, uint16_t that_id, uint8_t *bytecode);
 extern uint32_t g_script_vars[0x129];
+extern Entity  *g_actor[2];
+extern int      g_actor_scale_frozen[2];
+extern uint16_t g_cursor_speed, g_perspective_min, g_perspective_step;
+
+/* Anchor Y values that put an actor in the foreground vs behind the
+ * horizon under the default perspective ramp (120/4/7):
+ *   z = 120 - ((400 - anchorY) * 4) / 7, clamped [0, 0xA0].
+ * anchorY=400 → z=120 (front, well above ACTOR_REVEAL_MIN_SCALE=0x40);
+ * anchorY=100 → z clamps to 0 (deep, behind the horizon). */
+#define TEST_ANCHOR_Y_FOREGROUND   400
+#define TEST_ANCHOR_Y_BEHIND_HORIZON 100
 
 static size_t emit(uint16_t *buf, size_t pos, uint8_t op, uint8_t len,
                     uint16_t a0, uint16_t a1, uint16_t a2)
@@ -229,6 +240,107 @@ TEST(op_0E_set_entity_script_clears_walker_state)
     ASSERT_EQ(*(uint32_t *)(eb + 0x2C), 0u);
 }
 
+/* ---- op 0x0E on actors — scale-freeze only on the un-hide path ------ *
+ *
+ * Regression: the climb fix freezes an actor's perspective scale when a
+ * script binds an action anim to it via op 0x0E. But op 0x0E is also the
+ * routine scene-setup op that points each actor's per-entity VM at its
+ * idle script — and that runs for a VISIBLE actor. Freezing there stops
+ * the actor shrinking as it walks into scene depth. The freeze must fire
+ * ONLY when the actor was hidden before the bind (the skarpeta climb hides
+ * Fjej first, then binds the climb anim). */
+
+TEST(op_0E_visible_actor_bind_does_not_freeze_scale)
+{
+    reset_vm();
+    Entity *e = make_entity_clear();
+    uint8_t *eb = (uint8_t *)e;
+    *(uint16_t *)(eb + ENT_OFF_FLAGS1) &= (uint16_t)~EFLAG_HIDDEN;   /* visible */
+    /* Inject BEFORE wiring g_actor: the click-list helper owns the
+     * intern table the lookup walks; setting g_actor first would race it. */
+    test_inject_entity_for_verb(e, 7);
+    g_actor[0] = e;
+    g_actor[1] = NULL;
+    g_actor_scale_frozen[0] = 0;
+
+    uint16_t prog[8] = { 0 };
+    size_t p = 0;
+    p = emit_imm32(prog, p, 0x0E, 2, 7, 0);
+    p = emit(prog, p, 0x55, 1, 0, 0, 0);
+    (void)p;
+
+    RunScriptInterpreter(0, 0, (uint8_t *)prog);
+
+    /* A visible actor's scale must keep tracking perspective. */
+    ASSERT_EQ(g_actor_scale_frozen[0], 0);
+
+    g_actor[0] = NULL;
+    g_actor[1] = NULL;
+}
+
+TEST(op_0E_hidden_foreground_actor_unhides_and_freezes_scale)
+{
+    reset_vm();
+    g_cursor_speed = 0x78; g_perspective_min = 4; g_perspective_step = 7;
+    Entity *e = make_entity_clear();
+    uint8_t *eb = (uint8_t *)e;
+    *(uint16_t *)(eb + ENT_OFF_FLAGS1) |= EFLAG_HIDDEN;   /* hidden (climb lead-in) */
+    *(int16_t *)(eb + ENT_OFF_ANCHOR_Y) = TEST_ANCHOR_Y_FOREGROUND;  /* rope base */
+    test_inject_entity_for_verb(e, 7);
+    g_actor[0] = e;
+    g_actor[1] = NULL;
+    g_actor_scale_frozen[0] = 0;
+
+    uint16_t prog[8] = { 0 };
+    size_t p = 0;
+    p = emit_imm32(prog, p, 0x0E, 2, 7, 0);
+    p = emit(prog, p, 0x55, 1, 0, 0, 0);
+    (void)p;
+
+    RunScriptInterpreter(0, 0, (uint8_t *)prog);
+
+    /* Binding a visible anim to a hidden FOREGROUND actor shows it (climb
+     * lead-in) and holds its approach-time scale for the action. */
+    ASSERT_EQ(*(uint16_t *)(eb + ENT_OFF_FLAGS1) & EFLAG_HIDDEN, 0u);
+    ASSERT_EQ(g_actor_scale_frozen[0], 1);
+
+    g_actor[0] = NULL;
+    g_actor[1] = NULL;
+    g_actor_scale_frozen[0] = 0;
+}
+
+TEST(op_0E_hidden_deep_actor_stays_hidden_behind_horizon)
+{
+    reset_vm();
+    g_cursor_speed = 0x78; g_perspective_min = 4; g_perspective_step = 7;
+    Entity *e = make_entity_clear();
+    uint8_t *eb = (uint8_t *)e;
+    *(uint16_t *)(eb + ENT_OFF_FLAGS1) |= EFLAG_HIDDEN;   /* sent behind horizon */
+    *(int16_t *)(eb + ENT_OFF_ANCHOR_Y) = TEST_ANCHOR_Y_BEHIND_HORIZON; /* deep */
+    test_inject_entity_for_verb(e, 7);
+    g_actor[0] = e;
+    g_actor[1] = NULL;
+    g_actor_scale_frozen[0] = 0;
+
+    uint16_t prog[8] = { 0 };
+    size_t p = 0;
+    p = emit_imm32(prog, p, 0x0E, 2, 7, 0);
+    p = emit(prog, p, 0x55, 1, 0, 0, 0);
+    (void)p;
+
+    RunScriptInterpreter(0, 0, (uint8_t *)prog);
+
+    /* A hidden actor walked deep behind the horizon must STAY hidden and
+     * keep no frozen scale — otherwise it pops back as a stuck tiny sprite
+     * (regression: Ebek visible + malutki after the deep approach). */
+    ASSERT_EQ(*(uint16_t *)(eb + ENT_OFF_FLAGS1) & EFLAG_HIDDEN, EFLAG_HIDDEN);
+    ASSERT_EQ(g_actor_scale_frozen[0], 0);
+
+    g_actor[0] = NULL;
+    g_actor[1] = NULL;
+    g_actor_scale_frozen[0] = 0;
+}
+
 TEST(op_0E_no_entity_is_noop)
 {
     reset_vm();
@@ -346,6 +458,9 @@ SUITE(vm_misc_ops)
     RUN_TEST(op_26_wait_anim_frame_no_entity_skipped);
     RUN_TEST(op_3D_wait_kind2_frame_exits_when_already_at_target);
     RUN_TEST(op_0E_set_entity_script_clears_walker_state);
+    RUN_TEST(op_0E_visible_actor_bind_does_not_freeze_scale);
+    RUN_TEST(op_0E_hidden_foreground_actor_unhides_and_freezes_scale);
+    RUN_TEST(op_0E_hidden_deep_actor_stays_hidden_behind_horizon);
     RUN_TEST(op_0E_no_entity_is_noop);
     RUN_TEST(op_0F_set_entity_anim_with_kind2_clears_state);
     RUN_TEST(op_27_set_obj_prop_with_unresolved_va_is_noop);
