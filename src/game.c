@@ -205,6 +205,12 @@ int LoadStage(uint16_t stage)
     if (stage == 0) return 0;
     int idx = stage - 1;
     if (idx >= 5 || !g_stage_table[idx]) return 0;
+
+    /* Entering a level: drop the menu cinematics pinned at the title
+     * screen (nothing re-opens the archive to clear them otherwise) to
+     * reclaim that RAM. Keeps the gameplay LRU cache warm. */
+    DtaClearPreloads();
+
     g_stage    = g_stage_table[idx];
     g_cur_etap = stage;
     /* T26: also propagate the raw PE VA so subsequent LoadKomnata /

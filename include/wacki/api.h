@@ -194,6 +194,8 @@ int      GraphicsAlphaFxEnabled(void);
 
 int  OpenDtaArchiveFile(const char *path);
 int  LoadFileFromDta(const char *name, void **out_buf, uint32_t *out_size);
+int  DtaPreload(const char *name);   /* load + pin in the RAM cache (any size) */
+void DtaClearPreloads(void);         /* free pinned entries, keep the LRU */
 void DepackPkv2Buffer(void *src, void *dst, void (*progress)(int));
 
 /* ---- pe_loader.c ------------------------------------------------- *

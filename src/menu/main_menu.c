@@ -219,10 +219,34 @@ static void paint_lolding_holding_screen(void)
  * the intro AVI's end-palette typically left index 0 as saturated
  * blue, and after the palette fix it came out as white. LOLDING is
  * a clearer signal that the engine is doing something. */
+/* Preload + pin the menu cinematics so clicking Maluch / bomba / film
+ * plays instantly instead of stalling on an on-demand load.
+ * The animations reach the cache via LoadFileFromDta and the SFX via
+ * PlayMenuMusic → LoadFileFromDta, so a single pinned RAM copy serves
+ * both. Idempotent (cheap on menu re-entry); dropped on the next stage
+ * change. */
+static void preload_menu_cinematics(void)
+{
+    static const char *const assets[] = {
+        TITLE_MASK_FILENAME,            /* Tlo.wyc — shared cinematic backdrop */
+        "bomba.wyc",                    /* Quit → TAK explosion */
+        "mal_back.wyc", "fiacik.wyc",   /* Maluch drive-in */
+        "film.wyc",                     /* New → film projector */
+        "lont.wav", "bum.wav",          /* bomb fuse + bang */
+        "fiacik.wav",                   /* Maluch engine */
+        "Proj1.wav", "Proj2.wav",       /* projector */
+    };
+    int ok = 0, n = (int)(sizeof assets / sizeof assets[0]);
+    for (int i = 0; i < n; ++i)
+        ok += DtaPreload(assets[i]);
+    LOG_INFO("init", "preloaded %d/%d menu cinematics", ok, n);
+}
+
 static void enter_main_menu(void)
 {
     install_main_menu_palettes();
     paint_lolding_holding_screen();
+    preload_menu_cinematics();          /* warm the cinematics under LOLDING */
     s_anim_frame   = MAIN_MENU_ANIM_FIRST_FRAME;
     s_anim_delay   = 0;
     s_save_request = 0;

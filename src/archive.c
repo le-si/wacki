@@ -59,6 +59,17 @@ static const char *s_dta_path_p = s_dta_path;
 DtaIndexEntry     *s_dir        = NULL;
 int32_t            s_dir_count  = 0;
 
+/* The mounted archive is kept OPEN across LoadFileFromDta calls. Re-opening
+ * per asset means a file open per load; on slow storage (an SD card, optical
+ * media) an open is far heavier than a plain seek+read, so a flood of them
+ * during gameplay saturates the I/O path — stalling frames and starving the
+ * audio feed (sound loops). Held handle = open once at mount, seek+read per
+ * asset. (LoadFileFromDta is only ever called from the game thread, so the
+ * shared handle needs no locking.) */
+static CygFile    *s_dta_fp     = NULL;
+
+static void dta_cache_clear(void);   /* defined near LoadFileFromDta */
+
 /* ---- helpers ---------------------------------------------------- */
 
 /* macOS / case-sensitive FS fallback: retry with the basename
@@ -141,6 +152,10 @@ static int32_t dta_find_offset(const char *key)
 
 int OpenDtaArchiveFile(const char *path)
 {
+    /* Drop the previously mounted archive's held handle (stage change). */
+    if (s_dta_fp) { fclose_cyg(s_dta_fp); s_dta_fp = NULL; }
+    dta_cache_clear();   /* a name maps to different data per archive */
+
     s_dta_path_p = s_dta_path;
     snprintf(s_dta_path, sizeof s_dta_path, "%s", path);
     s_dir_count = 0;
@@ -172,12 +187,105 @@ int OpenDtaArchiveFile(const char *path)
     if (!s_dir) { fclose_cyg(f); return 0; }
     fseek_cyg(f, -(spis_size + (int32_t)SPIS_FOOTER_SIZE_BYTES), SEEK_END);
     fread_cyg(s_dir, 1, comp, f);
-    fclose_cyg(f);
+    s_dta_fp = f;                /* keep open for per-asset reads */
 
     DepackPkv2Buffer(s_dir, s_dir, NULL);
     s_dir_count = (int32_t)(unp >> DTA_INDEX_ENTRY_LOG2);
     LOG_TRACE("archive", "%s mounted (%d entries)", path, s_dir_count);
     return 1;
+}
+
+/* ---- small-asset RAM cache -------------------------------------- *
+ *
+ * The game re-loads the same small assets (sounds, anim frames) over and
+ * over. On a desktop the OS file cache hides that; off slow storage (an SD
+ * card, optical media) every reload is a real seek+read that stutters the
+ * game. Cache the depacked bytes of small assets so repeats are served from
+ * RAM. Cleared on archive (stage) change since a name can map to different
+ * data in a different archive. Large assets (backgrounds) are skipped —
+ * they're loaded once per scene, not in a loop, and would just evict the
+ * hot small entries.
+ *
+ * PINNED entries (DtaPreload) bypass the size cap and are never LRU-
+ * evicted — used to preload menu cinematics so clicking Maluch/bomba/film
+ * plays instantly instead of stalling on a load. They're freed on level entry
+ * (DtaClearPreloads, since nothing re-opens the archive in-game to clear
+ * them) so they don't linger in RAM all session — plus on archive change
+ * like the rest.
+ *
+ * ENTRIES is shared by the pinned + LRU tiers: the menu pins ~10, leaving
+ * the rest for the LRU; in-game the pins are cleared so all slots are LRU. */
+#define DTA_CACHE_ENTRIES   24
+#define DTA_CACHE_MAX_ENTRY (64 * 1024)
+
+typedef struct {
+    char     name[DTA_NAME_LEN];   /* uppercased key; data==NULL = empty */
+    void    *data;                 /* depacked copy */
+    uint32_t size;
+    uint32_t lru;
+    int      pinned;               /* preloaded: any size, never evicted */
+} DtaCacheEntry;
+
+static DtaCacheEntry s_cache[DTA_CACHE_ENTRIES];
+static uint32_t      s_cache_tick = 0;
+
+static void dta_cache_clear(void)
+{
+    for (int i = 0; i < DTA_CACHE_ENTRIES; ++i) {
+        if (s_cache[i].data) xfree(s_cache[i].data);
+        s_cache[i].data = NULL;
+        s_cache[i].name[0] = 0;
+        s_cache[i].pinned = 0;
+    }
+}
+
+static const void *dta_cache_get(const char *key, uint32_t *size)
+{
+    for (int i = 0; i < DTA_CACHE_ENTRIES; ++i) {
+        if (s_cache[i].data && memcmp(s_cache[i].name, key, DTA_NAME_LEN) == 0) {
+            s_cache[i].lru = ++s_cache_tick;
+            *size = s_cache[i].size;
+            return s_cache[i].data;
+        }
+    }
+    return NULL;
+}
+
+static void dta_cache_put(const char *key, const void *data, uint32_t size, int pin)
+{
+    if (size == 0) return;
+    if (!pin && size > DTA_CACHE_MAX_ENTRY) return;   /* pinned bypasses the cap */
+
+    /* Already present? Keep its (immutable) data; just pin/refresh it. This
+     * dedups when DtaPreload upgrades an entry LoadFileFromDta already
+     * cached, and lets DtaPreload pin with data==NULL. */
+    for (int i = 0; i < DTA_CACHE_ENTRIES; ++i) {
+        if (s_cache[i].data && memcmp(s_cache[i].name, key, DTA_NAME_LEN) == 0) {
+            if (pin) s_cache[i].pinned = 1;
+            s_cache[i].lru = ++s_cache_tick;
+            return;
+        }
+    }
+    if (!data) return;
+
+    /* Pick an empty slot, else the LRU non-pinned one. */
+    int slot = -1;
+    uint32_t oldest = 0xFFFFFFFFu;
+    for (int i = 0; i < DTA_CACHE_ENTRIES; ++i) {
+        if (!s_cache[i].data) { slot = i; break; }
+        if (!s_cache[i].pinned && s_cache[i].lru < oldest) { oldest = s_cache[i].lru; slot = i; }
+    }
+    if (slot < 0) return;                  /* all slots pinned — nothing to evict */
+
+    void *copy = xmalloc(size);
+    if (!copy) return;
+    memcpy(copy, data, size);
+    if (s_cache[slot].data) xfree(s_cache[slot].data);
+    memcpy(s_cache[slot].name, key, DTA_NAME_LEN);
+    s_cache[slot].data   = copy;
+    s_cache[slot].size   = size;
+    s_cache[slot].lru    = ++s_cache_tick;
+    s_cache[slot].pinned = pin;
 }
 
 int LoadFileFromDta(const char *name, void **out_buf, uint32_t *out_size)
@@ -187,13 +295,27 @@ int LoadFileFromDta(const char *name, void **out_buf, uint32_t *out_size)
     strncpy(key, name, sizeof key);
     dta_key_upper(key);
 
+    /* Cache hit → hand back a fresh copy (caller owns + xfree()s it),
+     * skipping the file read + depack entirely. */
+    uint32_t csize = 0;
+    const void *cached = dta_cache_get(key, &csize);
+    if (cached) {
+        void *copy = xmalloc(csize);
+        if (copy) {
+            memcpy(copy, cached, csize);
+            *out_buf  = copy;
+            *out_size = csize;
+            return 1;
+        }
+    }
+
     int32_t off = dta_find_offset(key);
     if (off <= 0) {
         LOG_INFO("log", "*** Brak takiego pliku w bazie %s", name);
         return 0;
     }
 
-    CygFile *f = fopen_cyg(s_dta_path_p, "rb");
+    CygFile *f = s_dta_fp;       /* archive stays open across loads */
     if (!f) return 0;
 
     fseek_cyg(f, off, SEEK_SET);
@@ -203,17 +325,68 @@ int LoadFileFromDta(const char *name, void **out_buf, uint32_t *out_size)
     uint32_t cap = hdr.compressed_size > hdr.unpacked_size
                  ? hdr.compressed_size : hdr.unpacked_size;
     void *buf = xmalloc(cap);
-    if (!buf) { fclose_cyg(f); return 0; }
+    if (!buf) return 0;
 
     /* Re-read INCLUDING the header — DepackPkv2Buffer expects the full
      * PKv2 stream (magic + sizes + payload). */
     fseek_cyg(f, off, SEEK_SET);
     fread_cyg(buf, 1, hdr.compressed_size, f);
-    fclose_cyg(f);
 
     DepackPkv2Buffer(buf, buf, NULL);
 
     *out_buf  = buf;
     *out_size = hdr.unpacked_size;
+    dta_cache_put(key, buf, hdr.unpacked_size, 0);   /* serve repeats from RAM */
     return 1;
+}
+
+/* ---- DtaPreload --------------------------------------------------- *
+ *
+ * Load an asset now and PIN it in the cache (any size, never evicted) so a
+ * later LoadFileFromDta / PlayMenuMusic for it is a RAM hit, not a file
+ * read. Used to warm the menu cinematics (Maluch/bomba/film animations +
+ * their SFX) at menu entry so triggering them doesn't hitch on a load.
+ * Idempotent; the pin is dropped on the next archive (stage) change. */
+int DtaPreload(const char *name)
+{
+    char key[DTA_NAME_LEN];
+    memset(key, 0, sizeof key);
+    strncpy(key, name, sizeof key);
+    dta_key_upper(key);
+
+    uint32_t csz = 0;
+    if (dta_cache_get(key, &csz)) {          /* already loaded → just pin it */
+        dta_cache_put(key, NULL, csz, 1);
+        return 1;
+    }
+
+    void *buf = NULL;
+    uint32_t sz = 0;
+    if (!LoadFileFromDta(name, &buf, &sz)) return 0;   /* reads (+ may cache) */
+    dta_cache_put(key, buf, sz, 1);          /* pin (upgrades or inserts) */
+    xfree(buf);
+    return 1;
+}
+
+/* ---- DtaClearPreloads -------------------------------------------- *
+ *
+ * Free only the pinned entries, leaving the LRU cache warm. The whole game
+ * runs off one mounted archive (Dane_02.dta) — nothing re-opens it after
+ * boot, so the full dta_cache_clear() never fires again and the menu
+ * cinematics, pinned for the title screen but useless in-game, would
+ * otherwise sit in RAM the entire session. LoadStage calls this on level
+ * entry to reclaim that RAM without dropping the gameplay LRU. */
+void DtaClearPreloads(void)
+{
+    int freed = 0;
+    for (int i = 0; i < DTA_CACHE_ENTRIES; ++i) {
+        if (s_cache[i].data && s_cache[i].pinned) {
+            xfree(s_cache[i].data);
+            s_cache[i].data    = NULL;
+            s_cache[i].name[0] = 0;
+            s_cache[i].pinned  = 0;
+            ++freed;
+        }
+    }
+    if (freed) LOG_INFO("init", "freed %d pinned preloads on level entry", freed);
 }
