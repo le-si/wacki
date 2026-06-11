@@ -819,7 +819,6 @@ kbd {
   justify-content: space-between;
   align-items: flex-start;
   padding-bottom: 26px;
-  border-bottom: 2px dashed rgba(255, 255, 255, 0.18);
 }
 .footer__brand {
   display: flex;
@@ -852,6 +851,42 @@ kbd {
 }
 .footer__legal p {
   margin-bottom: 8px;
+}
+
+/* Old-school hit counter — nixie-tube moe-counter, framed retro. Sits
+   between the footer links and the credits, with the divider below it. */
+.site-counter {
+  margin-top: 6px;
+  padding-bottom: 26px;
+  border-bottom: 2px dashed rgba(255, 255, 255, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  text-align: center;
+}
+.site-counter__label {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+.site-counter__digits {
+  height: 38px;
+  width: auto;
+  image-rendering: pixelated;
+  border: 2px solid #000;
+  border-radius: 3px;
+  background: #000;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 149, 0, 0.4),
+    0 0 14px rgba(255, 123, 8, 0.4);
+}
+.site-counter__note {
+  font-family: var(--font-hand);
+  font-size: 0.95rem;
+  opacity: 0.55;
 }
 
 .support {
