@@ -200,7 +200,11 @@ void DepackPkv2Buffer(void *src_, void *dst_, void (*progress)(int))
 
     /* Mode marker — 0 = no compression, body is raw copy. */
     if (*eot == 0) {
-        memcpy(dst, src + sizeof *h, unp);
+        /* memmove, not memcpy: in-place callers (src == dst, the common
+         * LoadFileFromDta path) copy from dst+sizeof(header) down to dst,
+         * so the ranges overlap by the header size. memcpy is UB on
+         * overlap (ASan traps it); memmove copies forward correctly. */
+        memmove(dst, src + sizeof *h, unp);
         if (progress) progress(100);
         return;
     }
