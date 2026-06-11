@@ -29,6 +29,15 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
+# Resolve the version string on the HOST, where git is installed and the
+# repo is trusted. Inside the container git is either absent or refuses
+# the host-owned checkout ("dubious ownership"), so a git describe there
+# silently falls back to "unknown" — which is exactly what shipped on the
+# menu. Pass the resolved value in via -e so the Makefile's `?=` picks it
+# up instead of re-running git. (Mirrors tools/build-portmaster.sh.)
+VER="$(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
+echo "[miyoo] version: $VER"
+
 echo "[miyoo] using image: $IMAGE"
 docker pull --platform linux/amd64 "$IMAGE"
 
@@ -51,6 +60,7 @@ fi
 #       usr/bin/sdl2-config                                 — config tool
 #       usr/lib/libSDL2-2.0.so.0                            — runtime lib
 docker run --rm --platform linux/amd64 \
+    -e "WACKI_VERSION=$VER" \
     -v "$(pwd):/root/workspace" \
     -w /root/workspace \
     "${extra_mounts[@]}" \

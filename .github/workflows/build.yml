@@ -63,7 +63,12 @@ jobs:
         shell: bash
 
     steps:
+      # fetch-depth: 0 so the Makefile's `git describe --tags` bakes the
+      # release tag into WACKI_VERSION; the default shallow clone has no
+      # tags and would yield a bare sha.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # ---- Linux: install SDL2's build-time deps so the static SDL2 can
       #   embed its dlopen stubs against system libs (libasound,
@@ -339,7 +344,12 @@ jobs:
       run:
         shell: bash
     steps:
+      # fetch-depth: 0 so `git describe --tags` sees tags + full history;
+      # the default shallow clone would bake a bare sha (or "unknown")
+      # into the version string instead of the release tag.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Fetch WACKI.EXE
         env:
@@ -429,7 +439,12 @@ jobs:
       run:
         shell: bash
     steps:
+      # fetch-depth: 0 so `git describe --tags` (run on the host by
+      # build-portmaster.sh) resolves the release tag rather than a bare
+      # sha from the default shallow clone.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # Register binfmt handlers so the x86_64 runner can run the
       # linux/arm64 + linux/arm/v7 build containers under emulation.
