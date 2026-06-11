@@ -47,6 +47,14 @@
     />
 
     <link rel="stylesheet" href="styles.css" />
+
+    <!-- Umami analytics (privacy-friendly, no cookies). Click events are
+         wired via data-umami-event attributes on the CTAs below. -->
+    <script
+      defer
+      src="https://umami.szula.top/script.js"
+      data-website-id="bf5d6c23-719c-4412-a957-eb05e36cfbc3"
+    ></script>
   </head>
   <body>
     <header class="nav" id="top">
@@ -66,12 +74,13 @@
           <a href="#start">Jak grać</a>
           <a href="#sterowanie">Sterowanie</a>
           <a href="#faq">FAQ</a>
-          <a class="nav__support" href="#wesprzyj">☕ Wesprzyj</a>
+          <a class="nav__support" href="#wesprzyj" data-umami-event="support-nav">☕ Wesprzyj</a>
           <a
             class="nav__gh"
             href="https://github.com/mszula/wacki"
             target="_blank"
             rel="noopener"
+            data-umami-event="github"
             >GitHub ↗</a
           >
         </nav>
@@ -97,6 +106,7 @@
         </p>
         <div class="hero__cta">
           <a class="btn btn--primary" id="hero-download" href="#pobierz"
+            data-umami-event="hero-pobierz"
             >Pobierz za darmo</a
           >
           <a class="btn btn--ghost" href="#handheldy">Gra na handheldach</a>
@@ -248,6 +258,8 @@
               <a
                 class="btn btn--dl"
                 href="https://github.com/mszula/wacki/releases/latest/download/wacki-windows-x86_64.zip"
+                data-umami-event="download"
+                data-umami-event-platform="windows"
                 >Pobierz <span class="card__size"></span
               ></a>
               <p class="card__file">wacki-windows-x86_64.zip</p>
@@ -264,6 +276,8 @@
               <a
                 class="btn btn--dl"
                 href="https://github.com/mszula/wacki/releases/latest/download/wacki-macos-arm64.tar.gz"
+                data-umami-event="download"
+                data-umami-event-platform="mac"
                 >Pobierz <span class="card__size"></span
               ></a>
               <p class="card__file">wacki-macos-arm64.tar.gz</p>
@@ -280,6 +294,8 @@
               <a
                 class="btn btn--dl"
                 href="https://github.com/mszula/wacki/releases/latest/download/wacki-linux-x86_64.tar.gz"
+                data-umami-event="download"
+                data-umami-event-platform="linux"
                 >Pobierz <span class="card__size"></span
               ></a>
               <p class="card__file">wacki-linux-x86_64.tar.gz</p>
@@ -296,6 +312,8 @@
               <a
                 class="btn btn--dl"
                 href="https://github.com/mszula/wacki/releases/latest/download/wacki-miyoo.zip"
+                data-umami-event="download"
+                data-umami-event-platform="miyoo"
                 >Pobierz <span class="card__size"></span
               ></a>
               <p class="card__file">wacki-miyoo.zip</p>
@@ -312,6 +330,8 @@
               <a
                 class="btn btn--dl"
                 href="https://github.com/mszula/wacki/releases/latest/download/wacki-portmaster.zip"
+                data-umami-event="download"
+                data-umami-event-platform="portmaster"
                 >Pobierz <span class="card__size"></span
               ></a>
               <p class="card__file">wacki-portmaster.zip</p>
@@ -324,6 +344,7 @@
               href="https://github.com/mszula/wacki/releases"
               target="_blank"
               rel="noopener"
+              data-umami-event="github-releases"
               >github.com/mszula/wacki/releases</a
             >. Wolisz zbudować ze źródeł? Zajrzyj do
             <a
@@ -620,6 +641,7 @@
                 href="https://github.com/mszula/wacki/issues/new/choose"
                 target="_blank"
                 rel="noopener"
+                data-umami-event="report-issue"
                 >GitHubie</a
               >. Dołącz wersję portu, platformę i — jeśli to błąd wizualny —
               zrzut ekranu. Szczegóły (gdzie znaleźć <code>wacki.log</code>) są
@@ -644,6 +666,7 @@
             href="https://suppi.pl/mszula"
             target="_blank"
             rel="noopener"
+            data-umami-event="support-suppi"
             >☕ Postaw kawę na Suppi</a
           >
           <p class="support__url">suppi.pl/mszula</p>
