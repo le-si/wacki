@@ -51,14 +51,16 @@
 #define PORT_ATTRIBUTION_LINE2      ((const uint8_t *)"github.com/mszula/wacki")
 
 /* Build version baked in at compile time (Makefile -DWACKI_VERSION,
- * e.g. "v0.1.0"). Falls back to "dev" if a build path forgets to pass
- * it. Shown on its own centred line on the post-Credits screen and
- * appended to the signature on the title footer, so a player can read
- * back exactly which build they're running. WACKI_VERSION is a string
- * literal, so it concatenates with the author literal at compile time —
- * the comma chars / dots / dashes it contains are all in Futura.30. */
+ * e.g. "v0.1.0"). Falls back to "unknown" if a build path forgets to
+ * pass it — same fallback as main.c's startup log, so the two surfaces
+ * never disagree. Shown on its own centred line on the post-Credits
+ * screen and appended to the signature on the title footer, so a player
+ * can read back exactly which build they're running. WACKI_VERSION is a
+ * string literal, so it concatenates with the author literal at compile
+ * time — the comma chars / dots / dashes it contains are all in
+ * Futura.30. */
 #ifndef WACKI_VERSION
-#define WACKI_VERSION "dev"
+#define WACKI_VERSION "unknown"
 #endif
 #define PORT_ATTRIBUTION_VERSION    ((const uint8_t *)WACKI_VERSION)
 

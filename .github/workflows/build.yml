@@ -63,12 +63,25 @@ jobs:
         shell: bash
 
     steps:
-      # fetch-depth: 0 so the Makefile's `git describe --tags` bakes the
-      # release tag into WACKI_VERSION; the default shallow clone has no
-      # tags and would yield a bare sha.
+      # fetch-depth: 0 so the "Resolve build version" step's `git describe
+      # --tags` sees the release tag; the default shallow clone has no tags
+      # and would yield a bare sha.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # Resolve the version ONCE here, in the runner's default shell (Git
+      # Bash on Windows), and export it for every later step. The Windows
+      # build runs `make` inside the MSYS2/MINGW64 shell, which has no
+      # `git` on PATH — base-devel doesn't ship it and MSYS2's minimal
+      # PATH hides the runner's native git — so the Makefile's
+      # `git describe` there silently falls back to "unknown", baking a
+      # bogus version into the startup log + menu. Computing it here (the
+      # same git that did the checkout, so no dubious-ownership trap) and
+      # passing it via $GITHUB_ENV fixes Windows and keeps every platform
+      # consistent: the Makefile's `WACKI_VERSION ?=` honours the env.
+      - name: Resolve build version
+        run: echo "WACKI_VERSION=$(git describe --tags --always --dirty)" >> "$GITHUB_ENV"
 
       # ---- Linux: install SDL2's build-time deps so the static SDL2 can
       #   embed its dlopen stubs against system libs (libasound,
