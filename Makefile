@@ -295,12 +295,15 @@ endif
 # default English menu bar (App / Window / View) into Polish. clang
 # compiles the .m as Objective-C from its extension even inside the
 # single mixed C/.m link command; AppKit is pulled in via -framework
-# Cocoa. Darwin-only and never for the (Linux/ARM) Miyoo target.
+# Cocoa. -framework Security pulls in the SecTranslocate SPI used to
+# undo Gatekeeper App Translocation (see PlatformMacUntranslocatePath),
+# so "drop data/ next to Wacki.app" works for downloaded bundles.
+# Darwin-only and never for the (Linux/ARM) Miyoo target.
 ifneq ($(TARGET),miyoo)
 ifneq ($(OS),Windows_NT)
 ifeq ($(shell uname -s 2>/dev/null),Darwin)
     ENGINE_SRCS      += src/platform_macos.m
-    MACOS_FRAMEWORKS := -framework Cocoa
+    MACOS_FRAMEWORKS := -framework Cocoa -framework Security
 endif
 endif
 endif

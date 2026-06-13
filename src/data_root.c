@@ -408,16 +408,27 @@ int FindDataRoot(void)
 #ifdef __APPLE__
         /* 5. macOS .app neighbor — the folder where Wacki.app sits.
          * Lets the user just drop Dane_*.dta into the same folder
-         * as the bundle without opening Show Package Contents. */
-        char *neighbor = macos_dirname_of_app(base);
+         * as the bundle without opening Show Package Contents.
+         *
+         * A quarantined bundle (downloaded / AirDropped) launched from
+         * Finder runs translocated: SDL_GetBasePath points at a random
+         * read-only AppTranslocation mount whose neighbor holds no user
+         * files. Resolve the real on-disk bundle path first so the probe
+         * looks where the user actually dropped data/. No-op (returns
+         * NULL, original base kept) when not translocated. */
+        extern char *PlatformMacUntranslocatePath(const char *);
+        char *real_base = PlatformMacUntranslocatePath(base);
+        char *neighbor = macos_dirname_of_app(real_base ? real_base : base);
         if (neighbor) {
             if (try_root_and_data(neighbor)) {
                 free(neighbor);
+                free(real_base);
                 SDL_free(base);
                 return DATA_ROOT_FOUND;
             }
             free(neighbor);
         }
+        free(real_base);
 #endif
         SDL_free(base);
     }

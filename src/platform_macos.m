@@ -22,6 +22,9 @@
  */
 
 #import <Cocoa/Cocoa.h>
+#include <limits.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 /* When launched from Finder, a .app bundle's working directory is "/"
@@ -56,6 +59,58 @@ int PlatformMacUseAppSupportDir(void)
         const char *path = [[dir path] fileSystemRepresentation];
         if (!path || chdir(path) != 0) return 0;
         return 1;
+    }
+}
+
+/* SecTranslocate SPI (Security.framework). Exported since macOS 10.12 but
+ * with no public header, so we declare the two entry points we need. The
+ * bundle's LSMinimumSystemVersion is 11.0, well past 10.12, so the symbols
+ * are always present — no weak-link dance required. */
+extern Boolean SecTranslocateIsTranslocatedURL(CFURLRef path,
+                                               bool *isTranslocated,
+                                               CFErrorRef *error);
+extern CFURLRef SecTranslocateCreateOriginalPathForURL(CFURLRef translocatedPath,
+                                                       CFErrorRef *error);
+
+/* Undo Gatekeeper App Translocation for `path`.
+ *
+ * A quarantined, Finder-launched .app (downloaded, AirDropped, or copied
+ * with the com.apple.quarantine xattr) runs from a random read-only mount
+ * under .../AppTranslocation/<uuid>/d/Wacki.app. There, NSBundle and
+ * SDL_GetBasePath report that translocated path — and the single-item
+ * translocation mount hides everything beside the bundle, so FindDataRoot's
+ * "data/ next to Wacki.app" neighbor probe finds nothing. Resolve the
+ * bundle's real on-disk location via SecTranslocate so the probe looks
+ * where the user actually dropped the files.
+ *
+ * Returns a malloc()'d absolute path the caller frees, or NULL when `path`
+ * isn't translocated or on any error (caller keeps the original path). */
+char *PlatformMacUntranslocatePath(const char *path)
+{
+    if (!path || !*path) return NULL;
+    @autoreleasepool {
+        NSString *ns = [NSString stringWithUTF8String:path];
+        if (!ns) return NULL;
+        NSURL *url = [NSURL fileURLWithPath:ns];
+        if (!url) return NULL;
+
+        bool is_translocated = false;
+        if (!SecTranslocateIsTranslocatedURL((CFURLRef)url,
+                                             &is_translocated, NULL))
+            return NULL;
+        if (!is_translocated) return NULL;
+
+        CFURLRef original =
+            SecTranslocateCreateOriginalPathForURL((CFURLRef)url, NULL);
+        if (!original) return NULL;
+
+        char buf[PATH_MAX];
+        char *out = NULL;
+        if (CFURLGetFileSystemRepresentation(original, true,
+                                             (UInt8 *)buf, sizeof buf))
+            out = strdup(buf);
+        CFRelease(original);
+        return out;
     }
 }
 
