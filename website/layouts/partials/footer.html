@@ -1,0 +1,76 @@
+{{- $root := cond .IsHome "" "index.html" -}}
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer__grid">
+      <div>
+        <div class="footer__brand">
+          <img src="assets/favicon-32.png" alt="" width="32" height="32" />
+          <span>WACKI</span>
+        </div>
+        <p class="footer__tag">
+          Wierny port polskiej klasyki przygodowej z 1998 roku.
+        </p>
+      </div>
+      <nav class="footer__links" aria-label="Stopka">
+        <a href="{{ $root }}#top">Strona główna</a>
+        <a href="https://github.com/mszula/wacki" target="_blank" rel="noopener"
+          >Repozytorium</a
+        >
+        <a
+          href="https://github.com/mszula/wacki/releases"
+          target="_blank"
+          rel="noopener"
+          >Wydania</a
+        >
+        <a href="stats.html" data-umami-event="stats">Statystyki pobrań</a>
+        <a
+          href="https://github.com/mszula/wacki/blob/master/README.md"
+          target="_blank"
+          rel="noopener"
+          >README</a
+        >
+        <a
+          href="https://github.com/mszula/wacki/blob/master/BUILDING.md"
+          target="_blank"
+          rel="noopener"
+          >Budowanie</a
+        >
+        <a
+          href="https://github.com/mszula/wacki/issues/new/choose"
+          target="_blank"
+          rel="noopener"
+          >Zgłoś błąd</a
+        >
+        <a href="https://suppi.pl/mszula" target="_blank" rel="noopener"
+          >☕ Wesprzyj (Suppi)</a
+        >
+      </nav>
+    </div>
+
+    <!-- Stary, dobry licznik odwiedzin (moe-counter). Bo czemu nie 😄 -->
+    <div class="site-counter">
+      <span class="site-counter__label">Jesteś gościem numer</span>
+      <img
+        class="site-counter__digits"
+        src="https://count.getloli.com/get/@wacki-kosmiczna-rozgrywka?theme=nixietube-1"
+        alt="Licznik odwiedzin strony"
+        decoding="async"
+        onerror="this.closest('.site-counter').remove()"
+      />
+      <span class="site-counter__note">Najlepiej oglądać w 256 kolorach 😉</span>
+    </div>
+
+    <div class="footer__legal">
+      <p>
+        Kod portu na licencji <strong>GNU GPL v3.0</strong>. Copyright © 2026
+        Mateusz Szuła.
+      </p>
+      <p>
+        Oryginalna gra © 1998 <strong>Seven Stars Multimedia</strong> · wydawca
+        <strong>TopWare Interactive Polska</strong>. Niniejszy port jest dziełem
+        niezależnym i nie zawiera materiałów z oryginalnej gry. Strona fanowska,
+        niepowiązana z wydawcą.
+      </p>
+    </div>
+  </div>
+</footer>

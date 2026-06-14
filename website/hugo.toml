@@ -1,0 +1,13 @@
+baseURL = "https://mszula.github.io/wacki/"
+title = "Wacki: Kosmiczna rozgrywka"
+
+# Keep the historical flat URLs: _index.md -> /index.html, stats.md -> /stats.html
+# (matches the canonical links and avoids breaking inbound /stats.html links).
+uglyURLs = true
+
+# Two hand-authored pages — no taxonomies or feeds. Sitemap is kept (SEO).
+disableKinds = ["taxonomy", "term", "RSS"]
+
+[outputs]
+home = ["HTML"]
+page = ["HTML"]

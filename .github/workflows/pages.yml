@@ -33,7 +33,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Inject release version and date
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v3
+        with:
+          hugo-version: "0.163.1"
+          extended: true
+
+      - name: Resolve latest release (hero badge)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -50,10 +56,6 @@ jobs:
               TAG=""; PUB=""
             fi
           fi
-          if [ -z "$TAG" ]; then
-            echo "No release found - leaving version/date as-is in HTML."
-            exit 0
-          fi
           DATE=""
           if [ -n "$PUB" ]; then
             Y="${PUB:0:4}"; M="${PUB:5:2}"; D="${PUB:8:2}"; D="${D#0}"
@@ -65,19 +67,22 @@ jobs:
             esac
             DATE="$D $MN $Y"
           fi
-          echo "Version: $TAG | Date: ${DATE:-(none)}"
-          sed -i "s#\(id=\"rel-ver\"[^>]*>\)[^<]*#\1${TAG}#" website/index.html
-          if [ -n "$DATE" ]; then
-            sed -i "s#\(id=\"rel-date\"[^>]*>\)[^<]*#\1${DATE}#" website/index.html
-          fi
+          echo "Version: ${TAG:-(none)} | Date: ${DATE:-(none)}"
+          # Hugo reads HUGO_PARAMS_* env vars into site.Params (relver/reldate),
+          # rendered into the hero. Empty when there is no release yet.
+          echo "HUGO_PARAMS_RELVER=$TAG" >> "$GITHUB_ENV"
+          echo "HUGO_PARAMS_RELDATE=$DATE" >> "$GITHUB_ENV"
+
+      - name: Build with Hugo
+        run: hugo --source website --minify --gc
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload artifact (website/)
+      - name: Upload artifact (website/public)
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./website
+          path: ./website/public
 
       - name: Deploy
         id: deployment

@@ -1,0 +1,130 @@
+{{ define "head" }}
+<meta
+  name="description"
+  content="Ile razy pobrano port Wacki: Kosmiczna rozgrywka? Statystyki na żywo z GitHuba — podział na platformy (PC i handheldy) oraz na wydania."
+/>
+<link rel="canonical" href="{{ .Permalink }}" />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Wacki: Kosmiczna rozgrywka" />
+<meta property="og:locale" content="pl_PL" />
+<meta property="og:title" content="Statystyki pobrań — Wacki: Kosmiczna rozgrywka" />
+<meta
+  property="og:description"
+  content="Statystyki pobrań na żywo z GitHuba — podział na platformy i wydania."
+/>
+<meta property="og:url" content="{{ .Permalink }}" />
+<meta property="og:image" content="{{ "assets/cover.png" | absURL }}" />
+
+<link rel="preconnect" href="https://api.github.com" crossorigin />
+<link rel="stylesheet" href="stats.css" />
+{{ end }}
+
+{{ define "main" }}
+<section class="stats-hero">
+  <p class="stats-hero__kicker">📊 Ile osób w to gra?</p>
+  <h1>Statystyki pobrań</h1>
+  <div class="bignum">
+    <span class="bignum__digits" id="total-num">—</span>
+    <span class="bignum__label">pobrań łącznie</span>
+  </div>
+
+  <div class="stats-state" id="stats-state">
+    <span class="spinner" aria-hidden="true"></span>
+    <p>Ładuję świeże dane z GitHuba…</p>
+  </div>
+</section>
+
+<main id="stats-body" hidden>
+  <section class="section">
+    <div class="wrap">
+      <div class="statgrid">
+        <div class="statcard">
+          <span class="statcard__k">Pobrań łącznie</span>
+          <span class="statcard__v" id="sc-total">—</span>
+        </div>
+        <div class="statcard">
+          <span class="statcard__k">Wydań</span>
+          <span class="statcard__v">
+            <span id="sc-releases-num">—</span>
+            <small id="sc-releases-word">wydań</small>
+          </span>
+        </div>
+        <div class="statcard">
+          <span class="statcard__k">Najnowsza wersja</span>
+          <span class="statcard__v" id="sc-latest">—</span>
+        </div>
+        <div class="statcard">
+          <span class="statcard__k">Najpopularniejsza platforma</span>
+          <span class="statcard__v">
+            <span id="sc-top-icon"></span> <span id="sc-top">—</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--alt">
+    <div class="wrap">
+      <h2 class="h2"><span class="h2__tag">01</span> Wg platformy</h2>
+      <p class="section__sub">
+        Na czym ludzie grają. Procent = udział danej platformy w łącznej
+        liczbie pobrań.
+      </p>
+      <div class="bars" id="platform-bars"></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <h2 class="h2"><span class="h2__tag">02</span> PC kontra handheldy</h2>
+      <p class="section__sub">
+        Pecet (Windows, macOS, Linux) czy kieszonkowa konsola (Miyoo,
+        Anbernic i spółka)?
+      </p>
+      <div class="split">
+        <div class="split__bar">
+          <div class="split__seg split__seg--pc" id="split-pc-fill">
+            <span id="split-pc-pct"></span>
+          </div>
+          <div class="split__seg split__seg--hh" id="split-hh-fill">
+            <span id="split-hh-pct"></span>
+          </div>
+        </div>
+        <div class="split__legend">
+          <span class="split__item">
+            <span class="split__dot split__dot--pc"></span>
+            🖥️ PC — <b id="split-pc-num">—</b>
+          </span>
+          <span class="split__item">
+            <span class="split__dot split__dot--hh"></span>
+            🎮 Handheldy — <b id="split-hh-num">—</b>
+          </span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--alt">
+    <div class="wrap">
+      <h2 class="h2"><span class="h2__tag">03</span> Wg wydania</h2>
+      <p class="section__sub">
+        Suma pobrań wszystkich paczek danego wydania, od najnowszego.
+        Kliknij, by zobaczyć je na GitHubie.
+      </p>
+      <div class="bars bars--scroll" id="release-bars"></div>
+    </div>
+  </section>
+
+  <p class="stats-note">
+    Dane pobrane na żywo z <code>api.github.com</code> o godz.
+    <strong id="stats-stamp">—</strong>. Liczone są tylko pobrania paczek
+    z <a href="https://github.com/mszula/wacki/releases" target="_blank" rel="noopener">Wydań</a>
+    (bez klonów repozytorium i odwiedzin strony).
+  </p>
+</main>
+{{ end }}
+
+{{ define "scripts" }}
+<script src="stats.js"></script>
+{{ end }}

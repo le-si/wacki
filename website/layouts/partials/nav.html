@@ -1,0 +1,31 @@
+{{- /* In-page anchors stay local on the homepage, point back at index.html elsewhere. */ -}}
+{{- $root := cond .IsHome "" "index.html" -}}
+<header class="nav" id="top">
+  <div class="nav__inner">
+    <a class="nav__brand" href="{{ $root }}#top">
+      <img src="assets/favicon-32.png" alt="" width="28" height="28" />
+      <span>WACKI</span>
+    </a>
+    <button class="nav__burger" aria-label="Menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <nav class="nav__links" aria-label="Główne">
+      <a href="{{ $root }}#o-grze">O grze</a>
+      <a href="{{ $root }}#status">Port</a>
+      <a href="{{ $root }}#pobierz">Pobierz</a>
+      <a href="{{ $root }}#handheldy">Handheldy</a>
+      <a href="{{ $root }}#start">Jak grać</a>
+      <a href="{{ $root }}#sterowanie">Sterowanie</a>
+      <a href="{{ $root }}#faq">FAQ</a>
+      <a class="nav__support" href="{{ $root }}#wesprzyj" data-umami-event="support-nav">☕ Wesprzyj</a>
+      <a
+        class="nav__gh"
+        href="https://github.com/mszula/wacki"
+        target="_blank"
+        rel="noopener"
+        data-umami-event="github"
+        >GitHub ↗</a
+      >
+    </nav>
+  </div>
+</header>

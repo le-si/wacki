@@ -38,6 +38,12 @@ wacki.cfg
 ANALYSIS.md
 ANALYSIS/
 
+# Hugo landing-site build output and caches (website/ is the Hugo project;
+# only the source — content/, layouts/, static/, hugo.toml — is committed).
+/website/public/
+/website/resources/
+/website/.hugo_build.lock
+
 # Editor / OS metadata
 .DS_Store
 .idea/

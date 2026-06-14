@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    {{ partial "head-common.html" . }}
+    {{- block "head" . }}{{ end }}
+  </head>
+  <body>
+    {{ partial "nav.html" . }}
+    {{- block "main" . }}{{ end }}
+    {{ partial "footer.html" . }}
+
+    <a href="#top" class="totop" aria-label="Na górę">↑</a>
+
+    <script src="main.js"></script>
+    {{- block "scripts" . }}{{ end }}
+  </body>
+</html>
