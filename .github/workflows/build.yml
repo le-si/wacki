@@ -482,7 +482,10 @@ jobs:
   # our libmain.so. The APK ships WITHOUT the game data — it imports the user's
   # Dane_*.dta on first run via SAF (see android/README.md).
   android:
-    name: Android (debug APK)
+    # Builds a signed release APK when the keystore secret is present (the
+    # maintainer's branches + tags), else a debug APK (forks/PRs). The job name
+    # can't reflect that — `name:` can't read `secrets` — so it stays generic.
+    name: Android (APK)
     runs-on: ubuntu-latest
     defaults:
       run:

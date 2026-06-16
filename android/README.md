@@ -8,10 +8,12 @@ To jest **projekt do zbudowania w Android Studio** (sideload APK). Możesz też
 zbudować samodzielnie z linii poleceń (niżej).
 
 **Gotowe APK z CI:** job `android` w `.github/workflows/build.yml` buduje
-debugowe `wacki-android.apk` przy każdym pushu (master / port/android) — pobierz
-z artefaktów danego runu (zakładka Actions). Wydania na tagach `v*` mają APK
-dołączone do GitHub Release. APK jest podpisane kluczem debug (instaluje się
-bezpośrednio); podpisany build release wymagałby keystore w sekretach.
+`wacki-android.apk` przy każdym pushu (master / port/android) — pobierz z
+artefaktów danego runu (zakładka Actions). Wydania na tagach `v*` mają to APK
+dołączone do GitHub Release. Gdy w sekretach repo jest keystore (jak tutaj), CI
+buduje **podpisany build release** (`assembleRelease`) — i ten sam, produkcyjny
+artefakt ląduje w wydaniu. Bez keystore (forki/PR) leci fallback na debug APK.
+Patrz „Wydanie produkcyjne (podpisywanie)" niżej.
 
 ---
 
@@ -59,9 +61,9 @@ APK jest malutkie — danych gry w nim nie ma. Po instalacji:
 
 > **Bez SAF (adb/menedżer):** zamiast wskazywać folder możesz wrzucić
 > `DANE_*.DTA` wprost do prywatnego katalogu aplikacji
-> `Android/data/pl.mszula.wacki.debug/files/data/` (release: `pl.mszula.wacki`) —
+> `Android/data/pl.mszula.wacki/files/data/` (build debug: `pl.mszula.wacki.debug`) —
 > silnik też go tam znajdzie
-> (`adb push DANE_01.DTA /sdcard/Android/data/pl.mszula.wacki.debug/files/data/`).
+> (`adb push DANE_01.DTA /sdcard/Android/data/pl.mszula.wacki/files/data/`).
 
 Zapisy i `wacki.cfg` lądują w pamięci wewnętrznej aplikacji.
 
@@ -91,10 +93,14 @@ handheldach.
 
 ## Wydanie produkcyjne (podpisywanie)
 
-To, co budowałeś dotąd (i CI na każdym pushu), to **debug APK** — podpisany
-automatycznym kluczem debugowym Androida (`...-debug`, `applicationId`
-`pl.mszula.wacki.debug`). Nadaje się tylko do testów/sideloadu; **na produkcję
-się nie nadaje** (Sklep Play go odrzuci, a klucz debug jest publiczny).
+**Keystore jest już skonfigurowany w sekretach repo**, więc CI buduje
+**podpisany release APK** na każdym pushu, a tag `v*` dołącza go do GitHub
+Release (tak powstało `v1.2.0`). Wariant **debug APK** — podpisany automatycznym
+kluczem debugowym Androida (`applicationId` `pl.mszula.wacki.debug`) — powstaje
+już tylko jako fallback tam, gdzie sekrety są niedostępne (forki/PR); na
+produkcję się nie nadaje (Sklep Play go odrzuci, a klucz debug jest publiczny).
+Sekcja niżej opisuje, jak to skonfigurowano — przyda się przy forku lub rotacji
+klucza.
 
 Na produkcję potrzebujesz **własnego klucza** (keystore). Generujesz go **raz**
 i trzymasz na zawsze — każda przyszła aktualizacja musi być podpisana tym samym
@@ -123,7 +129,7 @@ cd android
 ```
 Bez tych właściwości `assembleRelease` zbuduje APK **niepodpisany**.
 
-**3. Podpisany build w CI (automatycznie przy tagu `v*`).** Dodaj 4 sekrety
+**3. Podpisany build w CI.** Dodaj 4 sekrety
 repo (Settings → Secrets and variables → Actions):
 
 | Sekret | Wartość |
@@ -133,9 +139,9 @@ repo (Settings → Secrets and variables → Actions):
 | `WACKI_KEY_ALIAS`         | `wacki` |
 | `WACKI_KEY_PASSWORD`      | hasło do klucza |
 
-Wtedy `git tag v1.0 && git push --tags` zbuduje **podpisany release APK** i
-dołączy `wacki-android.apk` do GitHub Release. Bez tych sekretów (albo na
-zwykłym pushu) CI buduje debug APK do testów — nic się nie wywala.
+Wtedy **każdy push** buduje podpisany release APK, a `git tag v1.2.0 && git push
+--tags` dodatkowo dołącza `wacki-android.apk` do GitHub Release. Bez tych
+sekretów (forki/PR) CI robi fallback na debug APK — nic się nie wywala.
 
 > **Sklep Play vs sideload.** Powyższe daje podpisany APK do samodzielnego
 > rozprowadzania (GitHub Releases / strona). Sklep Play wymaga **AAB**
