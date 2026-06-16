@@ -2,7 +2,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/mszula/wacki?sort=semver&style=flat-square&label=release&color=6f42c1)](../../releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/mszula/wacki/total?style=flat-square&label=downloads&color=44cc11&logo=github&logoColor=white)](../../releases)
-[![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20%C2%B7%20Miyoo%20%C2%B7%20PortMaster%20%C2%B7%20PS2-1f6feb?style=flat-square)](../../releases)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20%C2%B7%20Android%20%C2%B7%20Miyoo%20%C2%B7%20PortMaster%20%C2%B7%20PS2-1f6feb?style=flat-square)](../../releases)
 [![Language](https://img.shields.io/badge/C99-SDL2-555555?style=flat-square&logo=c&logoColor=white)](#)
 [![License](https://img.shields.io/github/license/mszula/wacki?style=flat-square&label=license&color=blue)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/mszula/wacki?style=flat-square&label=stars&logo=github&logoColor=white)](../../stargazers)
@@ -11,8 +11,8 @@
 A faithful, cross-platform port of **Wacki: Kosmiczna rozgrywka**
 (1998) — a Polish point-and-click adventure — reconstructed from the
 decompiled `WACKI.EXE`. It runs on desktop (macOS / Linux / Windows),
-on handhelds (Miyoo, plus Anbernic and dozens more via PortMaster),
-and on the PlayStation 2.
+on Android phones and tablets, on handhelds (Miyoo, plus Anbernic and
+dozens more via PortMaster), and on the PlayStation 2.
 The game is in Polish, set in Poland, and was made in Poland; for that
 reason the rest of this README is in Polish too.
 
@@ -209,6 +209,53 @@ są w [`docs/architecture.md`](docs/architecture.md#11-flagi-runtime).
 
 ---
 
+## 📱 Wersja na Androida
+
+Wacki działa na telefonach i tabletach z **Androidem 7.0+**. Gra renderuje
+się w wyśrodkowanym kadrze 4:3, a wolne miejsce po bokach (na szerokim
+ekranie trzymanym poziomo) wypełnia półprzezroczyste sterowanie dotykowe:
+wirtualna gałka po lewej, duży „lewy klik" i mniejszy „prawy klik" po
+prawej. Można też grać samym dotykiem ekranu albo padem Bluetooth/USB.
+
+### Wymagania
+
+- telefon lub tablet z **Androidem 7.0** (API 24) lub nowszym
+- plik **`wacki-android.apk`** z zakładki [Releases](../../releases)
+  (podpisany kluczem release — instaluje się bezpośrednio)
+- pliki danych z oryginalnej płyty: `Dane_*.dta`
+
+### Instalacja
+
+1. Pobierz `wacki-android.apk` z [Releases](../../releases) i zainstaluj.
+   To sideload, więc Android poprosi o zgodę na instalację z tego źródła.
+2. Skopiuj pliki `Dane_*.dta` z oryginalnej płyty gdziekolwiek na telefon
+   (np. osobny folder w „Pliki" / Downloads). **Nie pakuj ich do APK.**
+3. Uruchom Wacki → ekran powitalny → **„Wskaż folder z plikami gry"** →
+   wskaż ten folder. Gra **czyta pliki wprost z tego miejsca** (przez
+   Storage Access Framework) — nic nie jest kopiowane, więc start jest
+   natychmiastowy. Dostęp jest utrwalony: kolejne uruchomienia wchodzą od
+   razu w grę. Folder z danymi musi pozostać na miejscu.
+
+Gra zawsze startuje w orientacji poziomej. Zapisy i `wacki.cfg` lądują
+w pamięci wewnętrznej aplikacji.
+
+### Sterowanie
+
+| Czynność                          | Wejście                                          |
+|-----------------------------------|--------------------------------------------------|
+| Ruch kursora                      | dotyk ekranu · gałka (lewy panel)                |
+| Kliknięcie lewe                   | dotyk w grze · duży przycisk (prawy panel)       |
+| Kliknięcie prawe / przełącz postać| mały przycisk (prawy panel) · dotyk 2 palcami · **Tab** |
+| Menu pauzy                        | przycisk **Wstecz**                              |
+
+Na szerokim ekranie gra zajmuje środek, a w bocznych panelach jest
+dotykowe sterowanie: **gałka** (lewo) rusza kursorem proporcjonalnie
+(delikatny wychył = precyzyjne celowanie), **duży przycisk** po prawej to
+lewy klik, **mniejszy nad nim** — prawy. Kontrolki są półprzezroczyste,
+żeby nie zasłaniać gry. Pad Bluetooth/USB działa tak jak na handheldach.
+
+---
+
 ## 🎮 Wersja na handheld (Miyoo Mini Plus i pokrewne)
 
 ### Wymagania
@@ -395,7 +442,7 @@ Coś się sypie? Otwórz issue:
 W zgłoszeniu pomogą:
 
 - **wersja portu** — pierwsza linia logu uruchomieniowego (`[info/wacki] Wacki port vX.Y.Z…`)
-- **platforma** — macOS / Linux / Windows / Miyoo / Anbernic (PortMaster)
+- **platforma** — macOS / Linux / Windows / Android / Miyoo / Anbernic (PortMaster)
   + wersja systemu/firmware'u
 - **kroki reprodukcji** — co robiłeś bezpośrednio przed crashem
 - **`wacki.log`** — silnik loguje na stderr; gdzie szukać:
@@ -407,6 +454,7 @@ W zgłoszeniu pomogą:
     (zapisywany przez wrapper `wacki.sh`)
   - **Anbernic / PortMaster**: `ports/Wacki/log.txt`
     (zapisywany przez `Wacki.sh`)
+  - **Android**: `adb logcat -s wacki` (silnik loguje do systemowego logcata)
 - **screenshot** — jeśli problem jest wizualny (popsuta paleta,
   brakujący sprite, glitch animacji)
 
