@@ -1,0 +1,41 @@
+{{- /* Shared platform grid — home page and the /platformy/ hub. Single source
+       of truth: data/families.yaml (group order/labels) + content/platformy/*.md.
+
+       ONE uniform grid for all platforms (auto-fill → every card is the same
+       width; a single-card family no longer stretches full-width). Each card:
+       the body is a link to the platform guide, plus one direct-download button.
+
+       Param `compact` (home) drops the family headers for a clean picker; the
+       hub (compact:false) keeps headers — they span the whole grid row so the
+       card tracks stay uniform across groups. */ -}}
+{{- $compact := .compact | default false -}}
+{{- $platforms := where site.RegularPages "Section" "platformy" -}}
+<div class="pgrid">
+{{- range hugo.Data.families -}}
+  {{- $fam := . -}}
+  {{- $inFam := where $platforms "Params.familyKey" $fam.key -}}
+  {{- with $inFam }}
+    {{- if not $compact }}
+  <div class="pgrid__group">
+    <h3 class="pgrid__glabel">{{ $fam.icon }} {{ $fam.label }}</h3>
+    <p class="pgrid__gblurb">{{ $fam.blurb }}</p>
+  </div>
+    {{- end }}
+    {{- range .ByWeight }}
+    {{- $key := .File.BaseFileName }}
+  <a
+    class="card"
+    href="{{ .RelPermalink }}"
+    data-platform="{{ $key }}"
+    data-umami-event="platform"
+    data-umami-event-platform="{{ $key }}"
+  >
+    <span class="card__os">{{ .Params.icon }}</span>
+    <span class="card__name">{{ .Title }}</span>
+    <span class="card__sub">{{ .Params.sub }}</span>
+    <span class="card__cta">Pobierz <span class="card__arrow" aria-hidden="true">→</span></span>
+  </a>
+    {{- end }}
+  {{- end }}
+{{- end }}
+</div>

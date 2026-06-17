@@ -3,10 +3,14 @@
 <title>{{ .Title | default site.Title }}</title>
 <meta name="author" content="{{ site.Params.author }}" />
 
-<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
-<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png" />
-<link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
-<link rel="manifest" href="site.webmanifest" />
+{{- /* relURL makes these root-absolute (/wacki/…) so they resolve from any
+       page depth — the /platformy/ subpages would otherwise 404 on bare
+       relative paths. CSS-internal url() refs are relative to the stylesheet,
+       so those stay correct on their own. */ -}}
+<link rel="icon" type="image/png" sizes="32x32" href="{{ "assets/favicon-32.png" | relURL }}" />
+<link rel="icon" type="image/png" sizes="16x16" href="{{ "assets/favicon-16.png" | relURL }}" />
+<link rel="apple-touch-icon" href="{{ "assets/apple-touch-icon.png" | relURL }}" />
+<link rel="manifest" href="{{ "site.webmanifest" | relURL }}" />
 <meta name="theme-color" content="#e8330d" />
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -16,7 +20,7 @@
   rel="stylesheet"
 />
 
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="{{ "styles.css" | relURL }}?v={{ site.Params.assetver }}" />
 
 <!-- Umami analytics (privacy-friendly, no cookies). -->
 <script

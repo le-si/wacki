@@ -23,7 +23,7 @@
 <meta property="twitter:image" content="{{ "assets/cover.png" | absURL }}" />
 
 <link rel="preconnect" href="https://api.github.com" crossorigin />
-<link rel="stylesheet" href="stats.css" />
+<link rel="stylesheet" href="{{ "stats.css" | relURL }}?v={{ site.Params.assetver }}" />
 {{ end }}
 
 {{ define "main" }}
@@ -132,5 +132,5 @@
 {{ end }}
 
 {{ define "scripts" }}
-<script src="stats.js"></script>
+<script src="{{ "stats.js" | relURL }}?v={{ site.Params.assetver }}"></script>
 {{ end }}

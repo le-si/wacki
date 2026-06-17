@@ -1,6 +1,22 @@
 (function () {
   "use strict";
 
+  // Platform metadata is injected by Hugo (partials/platforms-data.html) from
+  // the content/platformy/*.md single source. Labels/assets come from there;
+  // only the UA sniff stays in JS, because order matters (Android UA also
+  // contains "linux", so it must be checked first — data weight order can't
+  // guarantee that).
+  var PLATFORMS = window.WACKI_PLATFORMS || [];
+
+  function platformByKey(key) {
+    for (var i = 0; i < PLATFORMS.length; i++) {
+      if (PLATFORMS[i].key === key) return PLATFORMS[i];
+    }
+    return null;
+  }
+
+  // Returns a platform key matching content/platformy/<key>.md (and the card's
+  // data-platform attribute), or null on iOS / unknown.
   function detectPlatform() {
     var ua = navigator.userAgent || "";
     var p = (navigator.userAgentData && navigator.userAgentData.platform) ||
@@ -10,17 +26,10 @@
     if (/android/.test(s)) return "android";
     if (/iphone|ipad|ipod/.test(s)) return null;
     if (/win/.test(s)) return "windows";
-    if (/mac/.test(s)) return "mac";
+    if (/mac/.test(s)) return "macos";
     if (/linux|x11|cros/.test(s)) return "linux";
     return null;
   }
-
-  var PLATFORM_LABEL = {
-    windows: "Windows",
-    mac: "macOS",
-    linux: "Linux",
-    android: "Android"
-  };
 
   var platform = detectPlatform();
 
@@ -28,9 +37,17 @@
     var card = document.querySelector('.card[data-platform="' + platform + '"]');
     if (card) card.classList.add("card--recommended");
 
+    // Hero CTA becomes a 1-click direct download for the detected OS. The grid
+    // tiles route to the per-platform pages; the hero is the express lane.
+    var meta = platformByKey(platform);
     var heroBtn = document.getElementById("hero-download");
-    if (heroBtn && PLATFORM_LABEL[platform]) {
-      heroBtn.textContent = "Pobierz dla " + PLATFORM_LABEL[platform];
+    if (heroBtn && meta) {
+      heroBtn.textContent = "⬇ Pobierz dla " + meta.label;
+      if (meta.dl) {
+        heroBtn.href = meta.dl;
+        heroBtn.setAttribute("data-umami-event", "download");
+        heroBtn.setAttribute("data-umami-event-platform", meta.key);
+      }
     }
   }
 
@@ -47,18 +64,6 @@
         burger.setAttribute("aria-expanded", "false");
       }
     });
-  }
-
-  var clock = document.getElementById("clock");
-  if (clock) {
-    var tick = function () {
-      var d = new Date();
-      var hh = String(d.getHours()).padStart(2, "0");
-      var mm = String(d.getMinutes()).padStart(2, "0");
-      clock.textContent = hh + ":" + mm;
-    };
-    tick();
-    setInterval(tick, 15000);
   }
 
   var toTop = document.querySelector(".totop");
@@ -78,7 +83,7 @@
 
   var img = new Image();
   img.onload = init;
-  img.src = "assets/cursor-pencil-sheet.png";
+  img.src = window.WACKI_CURSOR_SHEET || "assets/cursor-pencil-sheet.png";
 
   function init() {
     var cur = document.createElement("div");

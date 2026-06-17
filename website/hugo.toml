@@ -16,6 +16,19 @@ enableRobotsTXT = true
 # (enableRobotsTXT above auto-adds the robots output to the home page.)
 disableKinds = ["taxonomy", "term", "RSS"]
 
+# Render fenced code blocks as plain <pre><code> (no Chroma syntax colours +
+# inline background) so they pick up the themed .prose--guide pre styling
+# (ink box, comic border + shadow) instead of a monokai block that clashes.
+[markup.highlight]
+codeFences = false
+
 [params]
 author = "Mateusz Szuła"
 description = "Wierny, otwarty port polskiej gry przygodowej Wacki: Kosmiczna rozgrywka (1998). Przejdziesz ją w całości na PC, handheldach i konsolach."
+# Single place for the GitHub repo slug — used to build release/download links
+# across templates (platform grid, subpages, footer). Change once, not in 12 spots.
+repo = "mszula/wacki"
+
+# Cache-buster appended to styles.css/main.js/stats.* — bump on every CSS/JS
+# change so browsers (and the local preview) don't serve a stale build.
+assetver = "20260617h"

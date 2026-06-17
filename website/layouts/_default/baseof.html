@@ -6,13 +6,21 @@
     {{ partial "schema.html" . }}
   </head>
   <body>
+    {{- /* Real top-of-page anchor. Must NOT live on the sticky <header> — a
+           sticky element is always "in view" at top, so jumping to it barely
+           scrolls. This 0-height span sits at document top instead. */ -}}
+    <span id="top" aria-hidden="true"></span>
     {{ partial "nav.html" . }}
     {{- block "main" . }}{{ end }}
     {{ partial "footer.html" . }}
 
     <a href="#top" class="totop" aria-label="Na górę">↑</a>
 
-    <script src="main.js"></script>
+    {{- /* Exact URL of the cursor sprite sheet, relURL'd so it resolves from
+           any page depth (main.js preloads it before showing the cursor). */ -}}
+    <script>window.WACKI_CURSOR_SHEET = {{ "assets/cursor-pencil-sheet.png" | relURL }};</script>
+    {{ partial "platforms-data.html" . }}
+    <script src="{{ "main.js" | relURL }}?v={{ site.Params.assetver }}"></script>
     {{- block "scripts" . }}{{ end }}
   </body>
 </html>

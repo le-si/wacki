@@ -1,0 +1,21 @@
+# Platform families, in display order. The single source for how platforms are
+# grouped on the home grid and the /platformy/ hub. `key` matches each platform
+# page's params.familyKey (also the stats "kind" bucket: pc|mobile|handheld|console).
+# Adding a platform = drop a content file in content/platformy/ with the right
+# familyKey; it slots into the matching group automatically.
+- key: pc
+  label: Komputery
+  icon: "🖥️"
+  blurb: "macOS, Linux i Windows — mysz, klawiatura, pełny ekran."
+- key: mobile
+  label: Telefony i tablety
+  icon: "📱"
+  blurb: "Android — sterowanie dotykiem, obraz zawsze w poziomie."
+- key: handheld
+  label: Handheldy
+  icon: "🎮"
+  blurb: "Miyoo, Anbernic i dziesiątki innych kieszonkowych konsol."
+- key: console
+  label: Konsole
+  icon: "📀"
+  blurb: "Wielkie pudła pod telewizor — na razie PlayStation 2."

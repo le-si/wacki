@@ -1,0 +1,173 @@
+{{ define "head" }}
+{{- $fam := index (where hugo.Data.families "key" .Params.familyKey) 0 -}}
+<meta
+  name="description"
+  content="Jak grać w Wacki: Kosmiczna rozgrywka na {{ .Title }} — pobieranie, instalacja krok po kroku, sterowanie i rozwiązywanie problemów."
+/>
+<link rel="canonical" href="{{ .Permalink }}" />
+
+<meta property="og:type" content="article" />
+<meta property="og:site_name" content="Wacki: Kosmiczna rozgrywka" />
+<meta property="og:locale" content="pl_PL" />
+<meta property="og:title" content="Wacki na {{ .Title }} — pobierz i zagraj" />
+<meta
+  property="og:description"
+  content="Pobieranie, instalacja i sterowanie portu Wacki: Kosmiczna rozgrywka na {{ .Title }} ({{ $fam.label }})."
+/>
+<meta property="og:url" content="{{ .Permalink }}" />
+<meta property="og:image" content="{{ "assets/cover.png" | absURL }}" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="640" />
+<meta property="og:image:height" content="480" />
+<meta property="og:image:alt" content="Wacki: Kosmiczna rozgrywka — okładka portu" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta property="twitter:image" content="{{ "assets/cover.png" | absURL }}" />
+
+{{- /* Cover is the hero/LCP image on the subpage too — preload it. */}}
+<link rel="preload" as="image" href="{{ "assets/cover.png" | relURL }}" />
+{{ end }}
+
+{{ define "main" }}
+{{- $repo := site.Params.repo -}}
+{{- $fam := index (where hugo.Data.families "key" .Params.familyKey) 0 -}}
+{{- $dl := printf "https://github.com/%s/releases/latest/download/%s" $repo .Params.asset -}}
+{{- /* Split the body into a friendly part and a "for the keen" technical part
+       on the <!--tech--> marker. Gamers get the welcoming half up top; the
+       nitty-gritty (file search order, CLI flags, logs) goes in a collapsible. */ -}}
+{{- $parts := split .RawContent "<!--tech-->" -}}
+{{- $intro := index $parts 0 -}}
+{{- $tech := cond (gt (len $parts) 1) (index $parts 1) "" -}}
+
+<section class="phero phero--platform">
+  <div class="wrap">
+    <nav class="crumbs" aria-label="Ścieżka nawigacji">
+      <a href="{{ site.Home.RelPermalink }}">Strona główna</a>
+      <span aria-hidden="true">›</span>
+      <a href="{{ (site.GetPage "/platformy").RelPermalink }}">Platformy</a>
+      <span aria-hidden="true">›</span>
+      <span aria-current="page">{{ .Title }}</span>
+    </nav>
+
+    <div class="phero__main">
+      <div class="phero__art">
+        <img
+          src="{{ "assets/cover.png" | relURL }}"
+          alt="Wacki: Kosmiczna rozgrywka — kosmita Aargh oraz dwaj nastolatkowie Franc i Edek"
+          width="640"
+          height="480"
+        />
+        <span class="phero__sticker" aria-hidden="true">{{ .Params.icon }}</span>
+      </div>
+      <div class="phero__body">
+        <span class="phero__fam">{{ $fam.icon }} {{ $fam.label }}</span>
+        <h1 class="phero__title">Wacki na <span>{{ .Title }}</span></h1>
+        {{ with .Params.tagline }}<p class="phero__tag">{{ . }}</p>{{ end }}
+        <a
+          class="btn btn--dl btn--xl"
+          href="{{ $dl }}"
+          data-umami-event="download"
+          data-umami-event-platform="{{ .File.BaseFileName }}"
+          >⬇ Pobierz na {{ .Title }}</a
+        >
+        <p class="phero__note">
+          Za darmo · cała gra od intra do napisów{{ with .Params.sub }} · {{ . }}{{ end }}
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<main>
+  <section class="section">
+    <div class="wrap wrap--narrow">
+      <div class="callout callout--disc">
+        <div class="callout__icon">📀</div>
+        <div>
+          <h3>Potrzebujesz oryginalnej płyty z grą</h3>
+          <p>
+            Port to sam silnik (legalnie i za darmo) — pliki gry kopiujesz z
+            własnej, oryginalnej płyty <em>Wacki</em>. Jak dokładnie, mówi
+            instrukcja niżej.
+          </p>
+        </div>
+      </div>
+
+      <div class="prose prose--guide">{{ $intro | markdownify }}</div>
+    </div>
+  </section>
+
+  <section class="section section--alt">
+    <div class="wrap wrap--narrow">
+      <h2 class="h2">🎮 Sterowanie</h2>
+      <div class="ctrl ctrl--guide">
+        <table class="ktab">
+          <tbody>
+            {{ range .Params.controls }}
+            <tr>
+              <td>{{ .action }}</td>
+              <td><kbd>{{ .input }}</kbd></td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  {{ if $tech }}
+  <section class="section">
+    <div class="wrap wrap--narrow">
+      <details class="techbox">
+        <summary>
+          <span class="techbox__title">🔧 Dla chętnych — szczegóły techniczne</span>
+          <span class="techbox__hint">wymagania, ścieżki, opcje, logi</span>
+        </summary>
+        <div class="techbox__body">
+          {{ with .Params.requirements }}
+          <h3>Czego potrzebujesz</h3>
+          <ul class="checklist">
+            {{ range . }}<li>{{ . }}</li>{{ end }}
+          </ul>
+          {{ end }}
+          {{ with .Params.devices }}
+          <p class="pcol__devhead">Obsługiwane urządzenia:</p>
+          <ul class="checklist checklist--dev">
+            {{ range . }}<li>{{ . }}</li>{{ end }}
+          </ul>
+          {{ end }}
+          <div class="prose prose--guide">{{ $tech | markdownify }}</div>
+          {{ with .Params.logPath }}
+          <p class="techbox__log">📄 Gdzie są logi: {{ . | markdownify }}</p>
+          {{ end }}
+        </div>
+      </details>
+    </div>
+  </section>
+  {{ end }}
+
+  <section class="section section--alt">
+    <div class="wrap wrap--narrow">
+      <div class="callout callout--save">
+        <div class="callout__icon">💾</div>
+        <div>
+          <h3>Zacznij tu, dokończ gdzie indziej</h3>
+          <p>
+            Twój zapis działa wszędzie — możesz zacząć etap na {{ .Title }}, a
+            dokończyć na telefonie, handheldzie czy innym pececie. Plik
+            <code>Wacki.sav</code> jest zgodny nawet z oryginałem z 1998 r.
+          </p>
+        </div>
+      </div>
+
+      <nav class="pnav" aria-label="Dalej">
+        <a class="btn btn--ghost" href="{{ (site.GetPage "/platformy").RelPermalink }}"
+          >← Inne platformy</a
+        >
+        <a class="btn btn--ghost" href="{{ site.Home.RelPermalink }}#faq"
+          >Najczęstsze pytania</a
+        >
+      </nav>
+    </div>
+  </section>
+</main>
+{{ end }}

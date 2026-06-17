@@ -12,16 +12,23 @@
   var CACHE_KEY = "wacki-stats-v1";
   var CACHE_TTL_MS = 10 * 60 * 1000; // 10 min — stale cache still beats nothing
 
-  // name-substring → platform bucket. Robust to future filename tweaks.
-  var PLATFORMS = [
+  // name-substring → platform bucket. The list comes straight from Hugo
+  // (window.WACKI_PLATFORMS, injected from content/platformy/*.md) so the
+  // counter shares the site's single source of truth — add a platform there
+  // and it buckets here for free. The inline array below is only a fallback
+  // for when the global is missing (e.g. an old cached stats.html).
+  var FALLBACK_PLATFORMS = [
     { key: "windows",    match: ["windows", "win64", "win32"], icon: "🪟", label: "Windows",            kind: "pc",       color: "#2b6fb0" },
-    { key: "mac",        match: ["macos", "darwin", "osx"],    icon: "🍎", label: "macOS",              kind: "pc",       color: "#e0431a" },
+    { key: "macos",      match: ["macos", "darwin", "osx"],    icon: "🍎", label: "macOS",              kind: "pc",       color: "#e0431a" },
     { key: "linux",      match: ["linux"],                     icon: "🐧", label: "Linux",              kind: "pc",       color: "#ff7b08" },
+    { key: "android",    match: ["android", ".apk"],            icon: "🤖", label: "Android",            kind: "mobile",   color: "#3ddc84" },
     { key: "miyoo",      match: ["miyoo", "onion"],            icon: "🕹️", label: "Miyoo",              kind: "handheld", color: "#14a84a" },
-    { key: "portmaster", match: ["portmaster"],                icon: "🎮", label: "Anbernic / PortMaster", kind: "handheld", color: "#b8330f" },
-    { key: "ps2",        match: ["ps2", "playstation"],         icon: "📀", label: "PlayStation 2",         kind: "console",  color: "#1d3b8b" },
-    { key: "android",    match: ["android", ".apk"],            icon: "🤖", label: "Android",            kind: "mobile",   color: "#3ddc84" }
+    { key: "portmaster", match: ["portmaster"],                icon: "🎮", label: "Anbernic i PortMaster", kind: "handheld", color: "#b8330f" },
+    { key: "ps2",        match: ["ps2", "playstation"],         icon: "📀", label: "PlayStation 2",         kind: "console",  color: "#1d3b8b" }
   ];
+  var PLATFORMS = (window.WACKI_PLATFORMS && window.WACKI_PLATFORMS.length)
+    ? window.WACKI_PLATFORMS
+    : FALLBACK_PLATFORMS;
   var OTHER = { key: "other", icon: "📦", label: "Inne", kind: "pc", color: "#6b5a3e" };
 
   function platformFor(assetName) {

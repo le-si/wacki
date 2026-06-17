@@ -1,6 +1,12 @@
-{{- /* Structured data (schema.org JSON-LD). WebSite on every page; the rich
-       VideoGame entity only on the homepage. Built with dict+jsonify so all
-       escaping is handled by Hugo. */ -}}
+{{- /* Structured data (schema.org JSON-LD). WebSite on every page; a rich
+       VideoGame on the home page; SoftwareApplication + BreadcrumbList on each
+       platform subpage; BreadcrumbList on the platforms hub. Built with
+       dict+jsonify so all escaping is handled by Hugo.
+
+       GOTCHA: inside a <script> block, jsonify alone double-encodes — it MUST
+       be `jsonify | safeJS`. */ -}}
+{{- $repo := site.Params.repo -}}
+{{- $platformsPage := site.GetPage "/platformy" -}}
 {{- $website := dict
   "@context" "https://schema.org"
   "@type" "WebSite"
@@ -11,20 +17,24 @@
 -}}
 <script type="application/ld+json">{{ $website | jsonify | safeJS }}</script>
 {{- if .IsHome }}
+{{- $plats := slice -}}
+{{- range (where site.RegularPages "Section" "platformy").ByWeight -}}
+  {{- $plats = $plats | append .Title -}}
+{{- end -}}
 {{- $game := dict
   "@context" "https://schema.org"
   "@type" "VideoGame"
   "name" "Wacki: Kosmiczna rozgrywka"
   "alternateName" "Wacki"
-  "description" "Polska przygodowa gra point-and-click z 1998 roku — darmowy, otwarty port silnika na macOS, Linux, Windows, handheldy (Miyoo, Anbernic, PortMaster) oraz konsole."
+  "description" "Polska przygodowa gra point-and-click z 1998 roku — darmowy, otwarty port silnika na macOS, Linux, Windows, Androida, handheldy (Miyoo, Anbernic, PortMaster) oraz konsole."
   "url" site.BaseURL
   "image" (absURL "assets/cover.png")
   "inLanguage" "pl"
   "genre" "Przygodowa point-and-click"
   "datePublished" "1998-07-01"
   "applicationCategory" "Game"
-  "operatingSystem" "Windows, macOS, Linux"
-  "gamePlatform" (slice "Windows" "macOS" "Linux" "Miyoo" "Anbernic" "PortMaster" "PlayStation 2")
+  "operatingSystem" "Windows, macOS, Linux, Android, PlayStation 2"
+  "gamePlatform" $plats
   "author" (dict "@type" "Organization" "name" "Seven Stars Multimedia")
   "publisher" (dict "@type" "Organization" "name" "TopWare Interactive Polska")
   "offers" (dict
@@ -35,4 +45,45 @@
     "url" site.BaseURL)
 -}}
 <script type="application/ld+json">{{ $game | jsonify | safeJS }}</script>
+{{- end }}
+{{- if and (eq .Kind "page") (eq .Section "platformy") }}
+{{- $dl := printf "https://github.com/%s/releases/latest/download/%s" $repo .Params.asset -}}
+{{- $app := dict
+  "@context" "https://schema.org"
+  "@type" "SoftwareApplication"
+  "name" (printf "Wacki: Kosmiczna rozgrywka (%s)" .Title)
+  "operatingSystem" .Title
+  "applicationCategory" "GameApplication"
+  "inLanguage" "pl"
+  "url" .Permalink
+  "image" (absURL "assets/cover.png")
+  "downloadUrl" $dl
+  "softwareLicense" "https://www.gnu.org/licenses/gpl-3.0.html"
+  "offers" (dict
+    "@type" "Offer"
+    "price" "0"
+    "priceCurrency" "PLN"
+    "availability" "https://schema.org/InStock")
+-}}
+{{- with site.Params.relver }}{{ $app = merge $app (dict "softwareVersion" .) }}{{ end -}}
+<script type="application/ld+json">{{ $app | jsonify | safeJS }}</script>
+{{- $crumbs := dict
+  "@context" "https://schema.org"
+  "@type" "BreadcrumbList"
+  "itemListElement" (slice
+    (dict "@type" "ListItem" "position" 1 "name" "Strona główna" "item" site.BaseURL)
+    (dict "@type" "ListItem" "position" 2 "name" "Platformy" "item" $platformsPage.Permalink)
+    (dict "@type" "ListItem" "position" 3 "name" .Title "item" .Permalink))
+-}}
+<script type="application/ld+json">{{ $crumbs | jsonify | safeJS }}</script>
+{{- end }}
+{{- if and (eq .Kind "section") (eq .Section "platformy") }}
+{{- $crumbs := dict
+  "@context" "https://schema.org"
+  "@type" "BreadcrumbList"
+  "itemListElement" (slice
+    (dict "@type" "ListItem" "position" 1 "name" "Strona główna" "item" site.BaseURL)
+    (dict "@type" "ListItem" "position" 2 "name" "Platformy" "item" .Permalink))
+-}}
+<script type="application/ld+json">{{ $crumbs | jsonify | safeJS }}</script>
 {{- end }}

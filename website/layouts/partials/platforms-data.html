@@ -1,0 +1,25 @@
+{{- /* Emits the platform list as a JS global so the client scripts share the
+       same single source of truth as the templates (content/platformy/*.md).
+       stats.js uses `match`/`kind`/`color`/`label`/`icon` for bucketing the
+       live download counter; main.js uses `key`/`label`/`asset` for the
+       "your system" recommendation. Add a platform → it appears here for free.
+
+       GOTCHA (see also schema.html): inside a <script> block Go's html/template
+       context-escapes a jsonify'd string into a double-encoded mess. It MUST be
+       `jsonify | safeJS` — safeJS marks it as already-safe JS. */ -}}
+{{- $repo := site.Params.repo -}}
+{{- $list := slice -}}
+{{- range (where site.RegularPages "Section" "platformy").ByWeight -}}
+  {{- $list = $list | append (dict
+      "key" .File.BaseFileName
+      "label" .Title
+      "icon" .Params.icon
+      "color" .Params.color
+      "kind" .Params.familyKey
+      "match" .Params.match
+      "asset" .Params.asset
+      "url" .RelPermalink
+      "dl" (printf "https://github.com/%s/releases/latest/download/%s" $repo .Params.asset)
+  ) -}}
+{{- end -}}
+<script>window.WACKI_PLATFORMS = {{ $list | jsonify | safeJS }};</script>

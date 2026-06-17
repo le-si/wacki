@@ -1,10 +1,11 @@
-{{- $root := cond .IsHome "" "index.html" -}}
+{{- $home := site.Home.RelPermalink -}}
+{{- $repo := site.Params.repo -}}
 <footer class="footer">
   <div class="wrap">
     <div class="footer__grid">
       <div>
         <div class="footer__brand">
-          <img src="assets/favicon-32.png" alt="" width="32" height="32" />
+          <img src="{{ "assets/favicon-32.png" | relURL }}" alt="" width="32" height="32" />
           <span>WACKI</span>
         </div>
         <p class="footer__tag">
@@ -12,31 +13,32 @@
         </p>
       </div>
       <nav class="footer__links" aria-label="Stopka">
-        <a href="{{ $root }}#top">Strona główna</a>
-        <a href="https://github.com/mszula/wacki" target="_blank" rel="noopener"
+        <a href="{{ $home }}#top">Strona główna</a>
+        <a href="{{ (site.GetPage "/platformy").RelPermalink }}">Platformy</a>
+        <a href="https://github.com/{{ $repo }}" target="_blank" rel="noopener"
           >Repozytorium</a
         >
         <a
-          href="https://github.com/mszula/wacki/releases"
+          href="https://github.com/{{ $repo }}/releases"
           target="_blank"
           rel="noopener"
           >Wydania</a
         >
-        <a href="stats.html" data-umami-event="stats">Statystyki pobrań</a>
+        <a href="{{ "stats.html" | relURL }}" data-umami-event="stats">Statystyki pobrań</a>
         <a
-          href="https://github.com/mszula/wacki/blob/master/README.md"
+          href="https://github.com/{{ $repo }}/blob/master/README.md"
           target="_blank"
           rel="noopener"
           >README</a
         >
         <a
-          href="https://github.com/mszula/wacki/blob/master/BUILDING.md"
+          href="https://github.com/{{ $repo }}/blob/master/BUILDING.md"
           target="_blank"
           rel="noopener"
           >Budowanie</a
         >
         <a
-          href="https://github.com/mszula/wacki/issues/new/choose"
+          href="https://github.com/{{ $repo }}/issues/new/choose"
           target="_blank"
           rel="noopener"
           >Zgłoś błąd</a

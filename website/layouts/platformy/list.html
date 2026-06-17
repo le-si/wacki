@@ -1,0 +1,76 @@
+{{ define "head" }}
+<meta
+  name="description"
+  content="Wszystkie platformy, na których zagrasz w port Wacki: Kosmiczna rozgrywka — komputery (macOS, Linux, Windows), Android, handheldy (Miyoo, Anbernic, PortMaster) i PlayStation 2. Wybierz swój sprzęt."
+/>
+<link rel="canonical" href="{{ .Permalink }}" />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Wacki: Kosmiczna rozgrywka" />
+<meta property="og:locale" content="pl_PL" />
+<meta property="og:title" content="Platformy — gdzie zagrasz w Wacki" />
+<meta
+  property="og:description"
+  content="Komputery, Android, handheldy i konsole — wybierz swój sprzęt i pobierz port Wacki: Kosmiczna rozgrywka."
+/>
+<meta property="og:url" content="{{ .Permalink }}" />
+<meta property="og:image" content="{{ "assets/cover.png" | absURL }}" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="640" />
+<meta property="og:image:height" content="480" />
+<meta property="og:image:alt" content="Wacki: Kosmiczna rozgrywka — okładka portu" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta property="twitter:image" content="{{ "assets/cover.png" | absURL }}" />
+{{ end }}
+
+{{ define "main" }}
+<section class="phero phero--hub">
+  <div class="wrap">
+    <nav class="crumbs" aria-label="Ścieżka nawigacji">
+      <a href="{{ site.Home.RelPermalink }}">Strona główna</a>
+      <span aria-hidden="true">›</span>
+      <span aria-current="page">Platformy</span>
+    </nav>
+    <h1 class="phero__title phero__title--hub">Gdzie zagrasz w Wacki?</h1>
+    <p class="phero__lead">
+      Ten sam port, odtworzony piksel po pikselu, chodzi na
+      <strong>dziesiątkach urządzeń</strong> — od peceta, przez telefon, po
+      kieszonkowe konsolki i PlayStation 2. Wybierz swój sprzęt: każda platforma
+      ma <strong>własną instrukcję</strong> krok po kroku. Zapis przenosisz
+      między nimi w obie strony.
+    </p>
+  </div>
+</section>
+
+<main>
+  <section class="section">
+    <div class="wrap">
+      {{ partial "platform-grid.html" (dict "compact" false) }}
+
+      <div class="notice notice--hub">
+        <strong>⚠️ Pamiętaj o plikach gry.</strong>
+        Każda paczka to wyłącznie silnik. Aby zagrać, dorzuć pliki
+        <code>Dane_*.dta</code> z własnej, oryginalnej płyty — szczegóły są w
+        instrukcji każdej platformy.
+      </div>
+
+      <p class="cards__foot">
+        Nie ma Twojego sprzętu albo wolisz zbudować ze źródeł? Zajrzyj do
+        <a
+          href="https://github.com/{{ site.Params.repo }}/blob/master/BUILDING.md"
+          target="_blank"
+          rel="noopener"
+          >BUILDING.md</a
+        >. Wszystkie wydania:
+        <a
+          href="https://github.com/{{ site.Params.repo }}/releases"
+          target="_blank"
+          rel="noopener"
+          data-umami-event="github-releases"
+          >github.com/{{ site.Params.repo }}/releases</a
+        >.
+      </p>
+    </div>
+  </section>
+</main>
+{{ end }}
