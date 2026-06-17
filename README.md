@@ -364,10 +364,18 @@ Wybrane opcje można podać z linii poleceń lub przez zmienne
 
 **Logowanie:**
 
-| Flaga                  | Zmienna środowiskowa     | Działanie                                        |
-|------------------------|--------------------------|--------------------------------------------------|
-| `-q` / `--quiet`       | —                        | tylko ostrzeżenia i błędy (default to INFO)      |
-| `-v` / `--verbose`     | —                        | maksimum logów (wymaga buildu z `-DWACKI_VERBOSE`) |
+Build release jest **cichy** — domyślnie tylko ostrzeżenia i błędy (`WARN`),
+żeby wydany port nie zalewał użytkownika logami. Build dev (`make debug`,
+`-DWACKI_VERBOSE`) domyślnie pokazuje `INFO`. Poziom można zmienić w locie:
+
+| Flaga                  | Zmienna środowiskowa            | Działanie                                          |
+|------------------------|---------------------------------|----------------------------------------------------|
+| `-v` / `--verbose`     | `WACKI_LOG_LEVEL=info`/`trace`  | więcej logów (`TRACE` wymaga buildu z `-DWACKI_VERBOSE`) |
+| `-q` / `--quiet`       | `WACKI_LOG_LEVEL=error`         | tylko błędy                                         |
+
+`WACKI_LOG_LEVEL` przyjmuje `trace\|debug\|info\|warn\|error` i pozwala włączyć
+logi na wydanym buildzie (np. bundle macOS) bez rekompilacji; flaga `-v`/`-q`
+ma pierwszeństwo nad zmienną.
 
 Przykłady:
 

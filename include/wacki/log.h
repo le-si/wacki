@@ -36,7 +36,9 @@ typedef enum WackiLogLevel {
     WL_ERROR = 4,
 } WackiLogLevel;
 
-extern WackiLogLevel g_log_min_level;          /* default WL_INFO */
+/* Runtime severity threshold. Default WL_WARN in release builds (quiet),
+ * WL_INFO under -DWACKI_VERBOSE (dev). Override via -v/-q or WACKI_LOG_LEVEL. */
+extern WackiLogLevel g_log_min_level;
 
 /* The one printf-style helper. Adds the level/tag prefix + trailing
  * newline; the call site supplies only the body. Format and varargs

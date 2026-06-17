@@ -338,10 +338,14 @@ parser + `apply_env_overrides`).
 
 **Logging:**
 
+Domyślny `g_log_min_level` zależy od buildu: **`WARN`** w release (cicho —
+wydany port nie spamuje `INFO`), **`INFO`** w dev (`-DWACKI_VERBOSE`).
+
 | Flaga | Env equivalent | Efekt |
 |---|---|---|
-| `-v` / `--verbose` | — | Min level = `TRACE` (wymaga buildu z `-DWACKI_VERBOSE`) |
-| `-q` / `--quiet` | — | Min level = `WARN+` (default: `INFO`) |
+| `-v` / `--verbose` | `WACKI_LOG_LEVEL=info`/`trace`/… | Min level = `TRACE` (`TRACE`/`DEBUG` wymagają `-DWACKI_VERBOSE`) |
+| `-q` / `--quiet` | `WACKI_LOG_LEVEL=error` | Min level = `ERROR` (tylko błędy) |
+| — | `WACKI_LOG_LEVEL=<trace\|debug\|info\|warn\|error>` | Ustaw poziom na wydanym buildzie bez rekompilacji; `-v`/`-q` wygrywa |
 | — | `WACKI_INPUT_DEBUG=1` | Dump keydown/mousedown event w `platform_sdl.c` |
 
 **CI / smoke / dev:**

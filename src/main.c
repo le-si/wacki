@@ -147,7 +147,39 @@ typedef struct CliArgs
     int start_stage;      /* 1..5 = dev jump, 0 = normal flow */
     const char *play_avi; /* single-AVI test mode (--play-avi) */
     int test_cutscenes;   /* batch cutscene sweep (--test-cutscenes) */
+    int log_level_set;    /* 1 = -v/-q set the log level (env must not override) */
 } CliArgs;
+
+/* ASCII case-insensitive string equality (portable — avoids the
+ * <strings.h>/strcasecmp dependency across the port's targets). */
+static int str_ieq(const char *a, const char *b)
+{
+    for (; *a && *b; ++a, ++b) {
+        int ca = *a, cb = *b;
+        if (ca >= 'A' && ca <= 'Z') ca += 32;
+        if (cb >= 'A' && cb <= 'Z') cb += 32;
+        if (ca != cb) return 0;
+    }
+    return *a == *b;
+}
+
+/* Map a log-level name to a WackiLogLevel. Accepts the level names the
+ * logger prints (trace/debug/info/warn/error) plus the common synonyms
+ * "warning"/"err"/"none"/"silent" (none → ERROR-only). Returns -1 on no
+ * match so the caller can keep the current level. Case-insensitive. */
+static int parse_log_level_name(const char *s)
+{
+    if (!s) return -1;
+    struct { const char *name; WackiLogLevel lvl; } map[] = {
+        { "trace", WL_TRACE }, { "debug", WL_DEBUG }, { "info", WL_INFO },
+        { "warn", WL_WARN },   { "warning", WL_WARN }, { "error", WL_ERROR },
+        { "err", WL_ERROR },   { "none", WL_ERROR },  { "silent", WL_ERROR },
+    };
+    for (size_t i = 0; i < sizeof map / sizeof map[0]; ++i) {
+        if (str_ieq(s, map[i].name)) return (int)map[i].lvl;
+    }
+    return -1;
+}
 
 static void parse_cli_args(int argc, char **argv, CliArgs *out)
 {
@@ -206,18 +238,21 @@ static void parse_cli_args(int argc, char **argv, CliArgs *out)
         {
             g_no_pacing = 1;
         }
-        /* Log verbosity. `-v` / `--verbose` enables LOG_TRACE +
-         * LOG_DEBUG (requires -DWACKI_VERBOSE at build time too);
-         * `-q` / `--quiet` drops to WARN+. Default is INFO. */
+        /* Log verbosity (overrides the build default + WACKI_LOG_LEVEL).
+         * `-v`/`--verbose` shows everything — INFO breadcrumbs, plus
+         * LOG_TRACE/LOG_DEBUG when built with -DWACKI_VERBOSE.
+         * `-q`/`--quiet` shows errors only. */
         else if (strcmp(argv[i], "-v") == 0 ||
                  strcmp(argv[i], "--verbose") == 0)
         {
-            g_log_min_level = WL_TRACE;
+            g_log_min_level   = WL_TRACE;
+            out->log_level_set = 1;
         }
         else if (strcmp(argv[i], "-q") == 0 ||
                  strcmp(argv[i], "--quiet") == 0)
         {
-            g_log_min_level = WL_WARN;
+            g_log_min_level   = WL_ERROR;
+            out->log_level_set = 1;
         }
     }
 }
@@ -261,6 +296,17 @@ static void apply_env_overrides(CliArgs *args)
         env = getenv("WACKI_FULLSCREEN");
         if (env && *env && *env != '0')
             g_fullscreen = 1;
+    }
+
+    /* WACKI_LOG_LEVEL=trace|debug|info|warn|error — raise/lower verbosity on
+     * a shipped build without a rebuild or CLI args (e.g. capturing logs from
+     * the macOS bundle or `adb shell setprop`-style env on a handheld). A
+     * `-v`/`-q` flag still wins. */
+    if (!args->log_level_set)
+    {
+        int lvl = parse_log_level_name(getenv("WACKI_LOG_LEVEL"));
+        if (lvl >= 0)
+            g_log_min_level = (WackiLogLevel)lvl;
     }
 }
 

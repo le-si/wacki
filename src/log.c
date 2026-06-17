@@ -15,7 +15,17 @@
 #include <android/log.h>   /* stderr is dropped on Android — route to logcat */
 #endif
 
+/* Default severity threshold. Release builds ship QUIET — only WARN/ERROR
+ * reach stderr/logcat — so the distributed app doesn't spam a wall of
+ * [info/...] breadcrumbs at end users. Dev builds (-DWACKI_VERBOSE, i.e.
+ * `make debug`) default to INFO so those breadcrumbs are on while hacking.
+ * Either default is overridable at runtime: `-v`/`-q` flags or the
+ * WACKI_LOG_LEVEL env var (see src/main.c). */
+#ifdef WACKI_VERBOSE
 WackiLogLevel g_log_min_level = WL_INFO;
+#else
+WackiLogLevel g_log_min_level = WL_WARN;
+#endif
 
 #ifndef __ANDROID__
 static const char *const k_level_name[] = {
