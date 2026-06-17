@@ -540,10 +540,26 @@ static int handle_game_over_chapter_pick(void)
     /* Step 7: third pass — post-load button rebuild. */
     all_done = SelTloRefreshButtons();
 
-    /* Step 8: intro AVI of newly-loaded stage (the prev stage's "going
-     * to X" transition stashed in step 2). Skipped on finale path. */
+    /* Step 8: the just-finished stage's departure transition AVI — its
+     * alt3_avi, stashed in step 2 before the map repointed g_stage. Played
+     * after every chapter pick; skipped on the finale path. */
     if (!all_done && stashed_alt3) {
         play_stage_avi_if(stashed_alt3, GAME_OVER_CHAPTER_PICK, "transition");
+    }
+
+    /* Step 8b: the newly-picked stage's own intro AVI (its intro_avi). The
+     * original plays it in the stage-entry block right after the transition,
+     * so every chapter boundary runs, in order:
+     *   prev outro (alt_avi) -> map -> pick -> prev transition (alt3_avi)
+     *   -> new intro (intro_avi) -> gameplay.
+     * g_stage was repointed to the picked stage by LoadStage in step 6.
+     * intro_avi is NULL for stage 1 and the finale, so this is a no-op for
+     * those. The port resolved intro_avi into the StageDef but never played
+     * it on any path, so the incoming stage's intro was missing after every
+     * chapter pick — this restores it for all destinations. */
+    if (s_chapter_pick >= 1 && s_chapter_pick <= DEV_PICK_FINALE &&
+        g_stage && g_stage->intro_avi) {
+        play_stage_avi_if(g_stage->intro_avi, GAME_OVER_CHAPTER_PICK, "intro");
     }
 
     /* Step 9: hand the picked stage back to RunGameStageLoop. Steps 5-6
