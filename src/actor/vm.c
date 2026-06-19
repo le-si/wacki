@@ -689,6 +689,18 @@ post_exec:
         }
         if (atlas->off_widths)  EOFF(e, ENT_OFF_WIDTH,  uint16_t) = atlas->off_widths [fid];
         if (atlas->off_heights) EOFF(e, ENT_OFF_HEIGHT, uint16_t) = atlas->off_heights[fid];
+
+        /* EFLAG_DOUBLED sprites are drawn at 2× (render.c). The original
+         * (FUN_004012e0) doubles the stored width/height after fetching
+         * them so the foot_y / z-order bake below reflects the on-screen
+         * size — without this a doubled sprite (e.g. the komora3 atombum
+         * explosion) would sort by its native half-size footprint. */
+        if (EOFF(e, 8, uint16_t) & ENT_PFLAG_DOUBLED) {
+            EOFF(e, ENT_OFF_WIDTH,  uint16_t) =
+                (uint16_t)(EOFF(e, ENT_OFF_WIDTH,  uint16_t) << 1);
+            EOFF(e, ENT_OFF_HEIGHT, uint16_t) =
+                (uint16_t)(EOFF(e, ENT_OFF_HEIGHT, uint16_t) << 1);
+        }
     }
 
     /* Clamp scale to the engine's max. */

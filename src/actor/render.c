@@ -397,6 +397,23 @@ void EntityRenderAll(Entity *head)
             }
             blit_w = dw;
             blit_h = dh;
+        } else if (flags & EFLAG_DOUBLED) {
+            /* 2× pixel-doubled sprite — e.g. the komora3 atom-bomb
+             * explosion (atombum.wyc): a 320×200 atlas spawned with
+             * EFLAG_DOUBLED so it fills the 640×400 play area on a fatal
+             * mistake. The original (FUN_004012e0) expands the frame to
+             * 2× via FUN_004023c0 (a 2×2 pixel block per source pixel) and
+             * blits at the doubled dimensions; nearest-neighbour 2× is the
+             * same operation. The per-entity VM already folds the doubled
+             * hot-spot into the drawn position (the ENT_PFLAG_DOUBLED
+             * branch in vm.c), so dx/dy are correct — only the size was
+             * missing, which left the explosion at native 320×200 in the
+             * top-left corner. */
+            uint16_t dw = (uint16_t)(fw * 2);
+            uint16_t dh = (uint16_t)(fh * 2);
+            BlitSpriteScaledColorKeyFlip(dx, dy, fw, fh, dw, dh, px, 0);
+            blit_w = dw;
+            blit_h = dh;
         } else {
             BlitSpriteToBackbuffer((uint16_t)dx, (uint16_t)dy, 0, 0,
                                    fw, fh, fw, fh, px, 0);

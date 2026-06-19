@@ -224,6 +224,47 @@ TEST(pvm_set_frame_clamps_to_frame_count_minus_one)
     ASSERT_EQ(*(uint16_t *)((uint8_t *)e + 0x30), 3);   /* clamped */
 }
 
+/* ---- EFLAG_DOUBLED doubles the stored frame dims -------------------- *
+ *
+ * Sprites spawned with EFLAG_DOUBLED (0x4) are drawn at 2× (render.c) —
+ * e.g. the komora3 atom-bomb explosion atombum.wyc, a 320×200 atlas that
+ * must fill the 640×400 play area on a fatal mistake. The per-entity VM
+ * doubles the stored width/height after fetching the native frame dims,
+ * so the foot_y / z-order bake reflects the on-screen size (mirrors the
+ * original FUN_004012E0). Regression guard for the "explosion renders at
+ * native size in the corner" bug. */
+
+TEST(pvm_doubled_flag_doubles_stored_dims)
+{
+    reset();
+    int p = 0;
+    p = emit_p(s_bytecode, p, PVM_SET_FRAME, 2, 2, 0, 0);   /* frame 2: 24×34 */
+    p = emit_p(s_bytecode, p, PVM_END,       1, 0, 0, 0);
+    (void)p;
+
+    Entity *e = make_entity_with_bytecode(s_bytecode);
+    *(uint16_t *)((uint8_t *)e + 8) |= 0x0004;   /* EFLAG_DOUBLED */
+    EntityWalkerTick(NULL);
+
+    ASSERT_EQ(*(uint16_t *)((uint8_t *)e + 0x0e), 48);   /* 24 × 2 */
+    ASSERT_EQ(*(uint16_t *)((uint8_t *)e + 0x10), 68);   /* 34 × 2 */
+}
+
+TEST(pvm_undoubled_keeps_native_dims)
+{
+    reset();
+    int p = 0;
+    p = emit_p(s_bytecode, p, PVM_SET_FRAME, 2, 2, 0, 0);   /* frame 2: 24×34 */
+    p = emit_p(s_bytecode, p, PVM_END,       1, 0, 0, 0);
+    (void)p;
+
+    Entity *e = make_entity_with_bytecode(s_bytecode);
+    EntityWalkerTick(NULL);
+
+    ASSERT_EQ(*(uint16_t *)((uint8_t *)e + 0x0e), 24);   /* native, untouched */
+    ASSERT_EQ(*(uint16_t *)((uint8_t *)e + 0x10), 34);
+}
+
 /* ---- 0x05 SET_POS_FROM_FRAME ---------------------------------------- */
 
 TEST(pvm_set_pos_from_frame_copies_atlas_drawXY)
@@ -656,6 +697,8 @@ SUITE(per_entity_vm_real)
     RUN_TEST(pvm_set_anchor_y_only_writes_y);
     RUN_TEST(pvm_set_frame_writes_frame);
     RUN_TEST(pvm_set_frame_clamps_to_frame_count_minus_one);
+    RUN_TEST(pvm_doubled_flag_doubles_stored_dims);
+    RUN_TEST(pvm_undoubled_keeps_native_dims);
     RUN_TEST(pvm_set_pos_from_frame_copies_atlas_drawXY);
     RUN_TEST(pvm_set_delay_writes_both_delay_and_reset);
     RUN_TEST(pvm_delay_pause_halts_tick_with_pc_advanced);
